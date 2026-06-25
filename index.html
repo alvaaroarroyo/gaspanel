@@ -200,6 +200,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--d
       <button class="nav-btn" data-page="cisternas"><i class="ti ti-droplet"></i> Cisternas</button>
       <button class="nav-btn" data-page="prevision"><i class="ti ti-calendar-stats"></i> Previsión</button>
       <button class="nav-btn" data-page="empleados"><i class="ti ti-users"></i> Empleados</button>
+      <button class="nav-btn" data-page="cierre"><i class="ti ti-clipboard-check"></i> Cierre de caja</button>
       <button class="nav-btn" data-page="radar"><i class="ti ti-radar"></i> Competencia</button>
       <button class="nav-btn" data-page="informes"><i class="ti ti-file-description"></i> Informes</button>
       <button class="nav-btn" data-page="alertas"><i class="ti ti-bell"></i> Alertas <span class="nav-badge">3</span></button>
@@ -413,7 +414,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     curPage=btn.dataset.page;
-    const T={dashboard:'Dashboard',margenes:'Márgenes',cisternas:'Cisternas',prevision:'Previsión',empleados:'Empleados',radar:'Competencia',informes:'Informes',alertas:'Alertas',asistente:'Asistente IA'};
+    const T={dashboard:'Dashboard',margenes:'Márgenes',cisternas:'Cisternas',prevision:'Previsión',empleados:'Empleados',cierre:'Cierre de caja',radar:'Competencia',informes:'Informes',alertas:'Alertas',asistente:'Asistente IA'};
     document.getElementById('pg-title').textContent=T[curPage]||curPage;
     render();
   });
@@ -431,6 +432,7 @@ function render(){
     case 'cisternas': renderCisternas(); break;
     case 'prevision': content.innerHTML=pagePrevision(sd); setupPrevision(); break;
     case 'empleados': content.innerHTML=pageEmpleados(); break;
+    case 'cierre': content.innerHTML=pageCierre(); setupCierre(); break;
     case 'radar':     content.innerHTML=pageRadar(); break;
     case 'informes':  content.innerHTML=pageInformes(); break;
     case 'alertas':   content.innerHTML=pageAlertas(); break;
@@ -1005,6 +1007,212 @@ Responde en español, directo, máximo 4 líneas, sin markdown, con datos concre
     chatMsgs[chatMsgs.length-1].t=data.content?.[0]?.text||'Error al obtener respuesta.';
   }catch(e){chatMsgs[chatMsgs.length-1].t='Error de conexión. Comprueba tu internet.';}
   renderChatMsgs();
+}
+
+
+// ── CIERRE DE CAJA ────────────────────────────────────────────────────────────
+function pageCierre(){
+  const stN=curStation;
+  const sd=getSD();
+  const hoy=new Date().toISOString().split('T')[0];
+  const hoyLabel=new Date().toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
+  const medHoy=medDia(sd);
+
+  return`
+  <div class="card" style="margin-bottom:14px;border:1px solid var(--blue-m);background:#FAFCFF">
+    <div class="card-hd">
+      <div>
+        <div class="card-title" style="color:var(--blue)"><i class="ti ti-clipboard-check" style="font-size:13px;margin-right:5px"></i>Cierre de caja — ${hoyLabel}</div>
+        <div class="card-sub">${stN} · introduce los litros vendidos hoy</div>
+      </div>
+      <div style="font-size:11px;color:var(--t3);background:#F8FAFC;border:1px solid var(--border);border-radius:var(--rs);padding:6px 12px">
+        Media histórica hoy: <strong class="mono" style="color:var(--dark)">${f(medHoy)} L</strong>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:16px">
+      ${Object.entries(FUELS).map(([k,fc])=>`
+      <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span style="width:10px;height:10px;border-radius:50%;background:${fc.c};display:inline-block"></span>
+          <span style="font-size:11px;font-weight:600;color:${fc.c}">${fc.l}</span>
+        </div>
+        <div class="f-group">
+          <label class="f-label">Litros vendidos</label>
+          <input id="cc-lit-${k}" class="f-input mono" type="number" step="1" placeholder="${f(Math.round(medDia(sd)*fc.r))}" oninput="updCierre()"/>
+        </div>
+        <div class="f-group" style="margin-bottom:0">
+          <label class="f-label">PVP (€/L)</label>
+          <input id="cc-pvp-${k}" class="f-input mono" type="number" step="0.001" value="${fc.pvp}"/>
+        </div>
+      </div>`).join('')}
+      <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <i class="ti ti-notes" style="color:var(--t3);font-size:14px"></i>
+          <span style="font-size:11px;font-weight:600;color:var(--t2)">Observaciones</span>
+        </div>
+        <textarea id="cc-obs" style="width:100%;height:80px;padding:8px;border:1px solid var(--border);border-radius:var(--rs);font-size:11px;font-family:inherit;outline:none;resize:none;color:var(--dark)" placeholder="Incidencias, averías, novedades..."></textarea>
+      </div>
+    </div>
+
+    <div id="cc-resumen" style="display:none;background:var(--green-l);border-radius:8px;padding:14px;margin-bottom:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px"></div>
+
+    <div style="display:flex;gap:10px;align-items:center">
+      <button class="btn btn-p" style="flex:1;height:40px;font-size:13px" id="cc-guardar">
+        <i class="ti ti-device-floppy" style="font-size:14px"></i> Guardar cierre del día
+      </button>
+      <input type="date" id="cc-fecha" class="f-input" style="width:160px" value="${hoy}"/>
+    </div>
+  </div>
+
+  <div class="card" id="cc-historial">
+    <div class="card-hd"><div><div class="card-title">Últimos cierres registrados</div><div class="card-sub">${stN} · cargando desde Supabase...</div></div></div>
+    <div style="text-align:center;padding:20px;color:var(--t3)"><div class="spinner" style="margin:0 auto 8px"></div>Cargando...</div>
+  </div>`;
+}
+
+async function setupCierre(){
+  // Cargar historial
+  await cargarHistorialCierres();
+
+  // Actualizar resumen al escribir
+  updCierre();
+
+  // Guardar
+  document.getElementById('cc-guardar')?.addEventListener('click', async()=>{
+    const fecha=document.getElementById('cc-fecha')?.value||new Date().toISOString().split('T')[0];
+    const obs=document.getElementById('cc-obs')?.value||'';
+
+    const litros={};
+    const pvps={};
+    let totalLit=0;
+
+    Object.keys(FUELS).forEach(k=>{
+      const l=parseFloat(document.getElementById(`cc-lit-${k}`)?.value)||0;
+      const p=parseFloat(document.getElementById(`cc-pvp-${k}`)?.value)||0;
+      litros[k]=l; pvps[k]=p; totalLit+=l;
+    });
+
+    if(totalLit===0){toast('Introduce al menos los litros de un combustible',false);return;}
+
+    const btn=document.getElementById('cc-guardar');
+    btn.disabled=true; btn.innerHTML='<i class="ti ti-loader" style="font-size:14px"></i> Guardando...';
+
+    const {error}=await sb.from('cierres_caja').insert({
+      estacion: curStation,
+      fecha,
+      goa_litros: litros.GoA||0,
+      g95_litros: litros.G95||0,
+      g98_litros: litros.G98||0,
+      nexa_litros: litros.NEXA||0,
+      adblue_litros: 0,
+      goa_pvp: pvps.GoA||null,
+      g95_pvp: pvps.G95||null,
+      g98_pvp: pvps.G98||null,
+      nexa_pvp: pvps.NEXA||null,
+      goa_pc: FUELS.GoA.pc,
+      g95_pc: FUELS.G95.pc,
+      g98_pc: FUELS.G98.pc,
+      nexa_pc: FUELS.NEXA.pc,
+      observaciones: obs,
+      usuario_id: currentUser?.id==='demo'?null:currentUser?.id
+    });
+
+    if(error){
+      toast('Error al guardar: '+error.message, false);
+      btn.disabled=false; btn.innerHTML='<i class="ti ti-device-floppy" style="font-size:14px"></i> Guardar cierre del día';
+      return;
+    }
+
+    toast('✓ Cierre guardado correctamente en Supabase');
+    // Limpiar formulario
+    Object.keys(FUELS).forEach(k=>{
+      const el=document.getElementById(`cc-lit-${k}`);
+      if(el) el.value='';
+    });
+    document.getElementById('cc-obs').value='';
+    btn.disabled=false; btn.innerHTML='<i class="ti ti-device-floppy" style="font-size:14px"></i> Guardar cierre del día';
+    await cargarHistorialCierres();
+  });
+}
+
+function updCierre(){
+  let totalLit=0, totalBen=0;
+  Object.keys(FUELS).forEach(k=>{
+    const l=parseFloat(document.getElementById(`cc-lit-${k}`)?.value)||0;
+    const p=parseFloat(document.getElementById(`cc-pvp-${k}`)?.value)||FUELS[k].pvp;
+    const c=FUELS[k].pc;
+    const m=cM(p,c);
+    totalLit+=l; totalBen+=Math.round((m/100)*l);
+  });
+  const sd2=getSD();
+  const medH=medDia(sd2);
+  const res=document.getElementById('cc-resumen');
+  if(res&&totalLit>0){
+    res.style.display='grid';
+    const pct=medH>0?Math.round((totalLit-medH)/medH*100):0;
+    res.innerHTML=`
+      <div style="text-align:center"><div style="font-size:10px;color:#166534;margin-bottom:3px">Total litros hoy</div><div class="mono" style="font-size:20px;font-weight:700;color:var(--green)">${f(totalLit)} L</div><div style="font-size:10px;color:${pct>=0?'var(--green)':'var(--red)'}">${pct>=0?'+':''}${pct}% vs media</div></div>
+      <div style="text-align:center"><div style="font-size:10px;color:#166534;margin-bottom:3px">Beneficio estimado</div><div class="mono" style="font-size:20px;font-weight:700;color:var(--green)">${f(totalBen)} €</div></div>
+      <div style="text-align:center"><div style="font-size:10px;color:#166534;margin-bottom:3px">Media histórica hoy</div><div class="mono" style="font-size:20px;font-weight:700">${f(medH)} L</div></div>
+      <div style="text-align:center"><div style="font-size:10px;color:#166534;margin-bottom:3px">Estación</div><div style="font-size:16px;font-weight:700">${curStation.split(' ')[0]}</div></div>`;
+  } else if(res) res.style.display='none';
+}
+
+async function cargarHistorialCierres(){
+  const hist=document.getElementById('cc-historial');
+  if(!hist) return;
+
+  const {data,error}=await sb.from('cierres_caja')
+    .select('*')
+    .eq('estacion', curStation)
+    .order('fecha',{ascending:false})
+    .limit(14);
+
+  if(error||!data||data.length===0){
+    hist.innerHTML=`<div class="card-hd"><div><div class="card-title">Últimos cierres registrados</div><div class="card-sub">${curStation}</div></div></div>
+    <div style="text-align:center;padding:30px;color:var(--t3)">
+      <i class="ti ti-clipboard-x" style="font-size:28px;display:block;margin-bottom:8px"></i>
+      Aún no hay cierres registrados para ${curStation}.<br/>Usa el formulario de arriba para añadir el primero.
+    </div>`;
+    return;
+  }
+
+  const maxLit=Math.max(...data.map(c=>c.goa_litros+c.g95_litros+c.g98_litros+c.nexa_litros),1);
+
+  hist.innerHTML=`
+  <div class="card-hd"><div><div class="card-title">Últimos cierres registrados</div><div class="card-sub">${curStation} · ${data.length} cierres en Supabase</div></div>
+    <button class="btn btn-g btn-sm" onclick="toast('Exportando CSV...')"><i class="ti ti-download" style="font-size:12px"></i> Exportar</button>
+  </div>
+  <table class="tbl">
+    <thead><tr><th>Fecha</th><th>GoA</th><th>G95</th><th>G98</th><th>NEXA</th><th>Total litros</th><th>Benef. est.</th><th>vs Media</th><th>Trend</th></tr></thead>
+    <tbody>
+      ${data.map(c=>{
+        const total=c.goa_litros+c.g95_litros+c.g98_litros+c.nexa_litros;
+        const fecha=new Date(c.fecha);
+        const diaSemana=DIAS[fecha.getDay()===0?6:fecha.getDay()-1];
+        const medEseDia=medDia(getSD(),diaSemana)||medDia(getSD());
+        const pct=medEseDia>0?Math.round((total-medEseDia)/medEseDia*100):0;
+        const ben=Math.round(
+          (cM(c.goa_pvp||FUELS.GoA.pvp,c.goa_pc||FUELS.GoA.pc)/100)*c.goa_litros+
+          (cM(c.g95_pvp||FUELS.G95.pvp,c.g95_pc||FUELS.G95.pc)/100)*c.g95_litros+
+          (cM(c.g98_pvp||FUELS.G98.pvp,c.g98_pc||FUELS.G98.pc)/100)*c.g98_litros+
+          (cM(c.nexa_pvp||FUELS.NEXA.pvp,c.nexa_pc||FUELS.NEXA.pc)/100)*c.nexa_litros
+        );
+        return`<tr>
+          <td><div style="font-weight:500">${fecha.toLocaleDateString('es-ES',{day:'numeric',month:'short'})}</div><div style="font-size:10px;color:var(--t3)">${diaSemana}</div></td>
+          <td class="mono">${f(c.goa_litros)}</td>
+          <td class="mono">${f(c.g95_litros)}</td>
+          <td class="mono">${f(c.g98_litros)}</td>
+          <td class="mono">${f(c.nexa_litros)}</td>
+          <td class="mono" style="font-weight:600">${f(total)} L</td>
+          <td class="mono" style="color:var(--green);font-weight:500">${f(ben)} €</td>
+          <td><span style="font-size:11px;font-weight:600;color:${pct>=0?'var(--green)':'var(--red)'}">${pct>=0?'+':''}${pct}%</span></td>
+          <td><div style="width:60px;height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:${Math.round((total/maxLit)*100)}%;background:${pct>=0?'var(--blue)':'#FCA5A5'};border-radius:3px"></div></div></td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>`;
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
