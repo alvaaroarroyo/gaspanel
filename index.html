@@ -1015,8 +1015,11 @@ Responde en español, directo, máximo 4 líneas, sin markdown, con datos concre
 function pageCierre(){
   const stN=curStation;
   const sd=getSD();
-  const hoy=new Date().toISOString().split('T')[0];
-  const hoyLabel=new Date().toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
+  // Cierre es del día anterior
+  const ayer=new Date();ayer.setDate(ayer.getDate()-1);
+  const hoy=ayer.toISOString().split('T')[0];
+  const hoyLabel2=ayer.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
+  const hoyLabel=hoyLabel2;
   const medHoy=medDia(sd);
 
   return`
@@ -1138,46 +1141,70 @@ async function setupCierre(){
   updCuadre();
 
   document.getElementById('cc-guardar')?.addEventListener('click', async()=>{
-    const fecha=document.getElementById('cc-fecha')?.value||new Date().toISOString().split('T')[0];
+    // El cierre es siempre del día anterior
+    const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
+    const fechaDefault=yesterday.toISOString().split('T')[0];
+    const fecha=document.getElementById('cc-fecha')?.value||fechaDefault;
     const obs=document.getElementById('cc-obs')?.value||'';
 
-    const data={
-      estacion: curStation,
-      fecha,
-      observaciones: obs,
-      usuario_id: currentUser?.id==='demo'?null:currentUser?.id
-    };
-
+    // Recoger valores del formulario
+    const vals={};
     let totalVentas=0;
     let cuadreOk=true;
 
     Object.keys(FUELS).forEach(k=>{
-      const ini=parseFloat(document.getElementById(`cc-ini-${k}`)?.value)||0;
-      const cis=parseFloat(document.getElementById(`cc-cis-${k}`)?.value)||0;
-      const ven=parseFloat(document.getElementById(`cc-ven-${k}`)?.value)||0;
-      const fin=parseFloat(document.getElementById(`cc-fin-${k}`)?.value)||0;
-      const pvp=parseFloat(document.getElementById(`cc-pvp-${k}`)?.value)||FUELS[k].pvp;
-
-      data[k.toLowerCase()+'_ini']=ini;
-      data[k.toLowerCase()+'_cis']=cis;
-      data[k.toLowerCase()+'_lit']=ven;
-      data[k.toLowerCase()+'_fin']=fin;
-      data[k.toLowerCase()+'_pvp']=pvp;
-      data[k.toLowerCase()+'_pc']=FUELS[k].pc;
-
-      // Map to existing column names
-      if(k==='GoA')  {data.goa_litros=ven;data.goa_pvp=pvp;data.goa_pc=FUELS.GoA.pc;}
-      if(k==='G95')  {data.g95_litros=ven;data.g95_pvp=pvp;data.g95_pc=FUELS.G95.pc;}
-      if(k==='G98')  {data.g98_litros=ven;data.g98_pvp=pvp;data.g98_pc=FUELS.G98.pc;}
-      if(k==='NEXA') {data.nexa_litros=ven;data.nexa_pvp=pvp;data.nexa_pc=FUELS.NEXA.pc;}
-
-      totalVentas+=ven;
-      if(ini>0&&fin>0){
-        const calculado=ini+cis-ven;
-        const dif=Math.abs(calculado-fin);
-        if(dif>50) cuadreOk=false;
+      vals[k]={
+        ini: parseFloat(document.getElementById(`cc-ini-${k}`)?.value)||0,
+        cis: parseFloat(document.getElementById(`cc-cis-${k}`)?.value)||0,
+        ven: parseFloat(document.getElementById(`cc-ven-${k}`)?.value)||0,
+        fin: parseFloat(document.getElementById(`cc-fin-${k}`)?.value)||0,
+        pvp: parseFloat(document.getElementById(`cc-pvp-${k}`)?.value)||FUELS[k].pvp,
+      };
+      totalVentas+=vals[k].ven;
+      if(vals[k].ini>0&&vals[k].fin>0){
+        const calculado=vals[k].ini+vals[k].cis-vals[k].ven;
+        if(Math.abs(calculado-vals[k].fin)>50) cuadreOk=false;
       }
     });
+
+    // Construir objeto con nombres exactos de columnas de Supabase
+    const data={
+      estacion: curStation,
+      fecha,
+      observaciones: obs,
+      usuario_id: currentUser?.id==='demo'?null:currentUser?.id,
+      // Litros vendidos (columnas existentes)
+      goa_litros:  vals.GoA.ven,
+      g95_litros:  vals.G95.ven,
+      g98_litros:  vals.G98.ven,
+      nexa_litros: vals.NEXA.ven,
+      adblue_litros: 0,
+      // PVP
+      goa_pvp:  vals.GoA.pvp,
+      g95_pvp:  vals.G95.pvp,
+      g98_pvp:  vals.G98.pvp,
+      nexa_pvp: vals.NEXA.pvp,
+      // Precio compra
+      goa_pc:  FUELS.GoA.pc,
+      g95_pc:  FUELS.G95.pc,
+      g98_pc:  FUELS.G98.pc,
+      nexa_pc: FUELS.NEXA.pc,
+      // Existencias iniciales
+      goa_ini:  vals.GoA.ini,
+      g95_ini:  vals.G95.ini,
+      g98_ini:  vals.G98.ini,
+      nexa_ini: vals.NEXA.ini,
+      // Cisternas
+      goa_cis:  vals.GoA.cis,
+      g95_cis:  vals.G95.cis,
+      g98_cis:  vals.G98.cis,
+      nexa_cis: vals.NEXA.cis,
+      // Existencias finales
+      goa_fin:  vals.GoA.fin,
+      g95_fin:  vals.G95.fin,
+      g98_fin:  vals.G98.fin,
+      nexa_fin: vals.NEXA.fin,
+    };
 
     if(totalVentas===0){toast('Introduce al menos las ventas de un combustible',false);return;}
 
@@ -1194,10 +1221,11 @@ async function setupCierre(){
       return;
     }
 
-    // Actualizar stock local con existencias finales
+    // Actualizar stock local con existencias finales (para que cisternas lo refleje)
     Object.keys(FUELS).forEach(k=>{
-      const fin=parseFloat(document.getElementById(`cc-fin-${k}`)?.value)||0;
-      if(fin>0&&STOCK[curStation]) STOCK[curStation][k]=fin;
+      if(vals[k].fin>0&&STOCK[curStation]){
+        STOCK[curStation][k]=vals[k].fin;
+      }
     });
 
     toast(cuadreOk?'✓ Cierre guardado — los números cuadran':'✓ Cierre guardado — revisa las diferencias');
