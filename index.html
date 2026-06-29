@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -1034,6 +1035,20 @@ function pageCierre(){
       <input type="date" id="cc-fecha" class="f-input" style="width:160px" value="${hoy}"/>
     </div>
 
+    <!-- SUBIR EXCEL -->
+    <div style="background:var(--blue-l);border:1.5px dashed #93C5FD;border-radius:8px;padding:14px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+      <i class="ti ti-file-spreadsheet" style="font-size:28px;color:var(--blue);flex-shrink:0"></i>
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:600;color:var(--blue);margin-bottom:3px">Importar desde Excel</div>
+        <div style="font-size:11px;color:#3B82F6">Sube el Excel del día y se rellenan los campos automáticamente</div>
+      </div>
+      <label style="cursor:pointer">
+        <input type="file" id="excel-upload" accept=".xlsx,.xls" style="display:none" onchange="leerExcel(this)"/>
+        <div class="btn btn-p" style="pointer-events:none"><i class="ti ti-upload" style="font-size:13px"></i> Subir Excel</div>
+      </label>
+      <div id="excel-status" style="font-size:11px;color:var(--green);display:none;font-weight:500;min-width:180px"></div>
+    </div>
+
     <!-- FÓRMULA VISUAL -->
     <div style="background:#F8FAFC;border-radius:8px;padding:12px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;flex-wrap:wrap">
       <span style="background:var(--blue-l);color:var(--blue);padding:4px 10px;border-radius:6px;font-weight:600">Exist. iniciales</span>
@@ -1134,6 +1149,115 @@ function pageCierre(){
       <div class="spinner" style="margin:0 auto 8px;width:24px;height:24px;border-width:2px"></div>Cargando...
     </div>
   </div>`;
+}
+
+
+// ── LEER EXCEL ────────────────────────────────────────────────────────────────
+function leerExcel(input){
+  const file=input.files[0];
+  if(!file) return;
+  const status=document.getElementById('excel-status');
+  if(status){status.style.display='block';status.textContent='Leyendo Excel...';}
+
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data,{type:'array'});
+
+      // Buscar la hoja correcta (TOTAL o primera hoja con datos)
+      let ws=null;
+      const hojaTotal=wb.SheetNames.find(n=>n.toUpperCase().includes('TOTAL'));
+      const hojaHoja1=wb.SheetNames.find(n=>n.toUpperCase().includes('HOJA1')||n==='Hoja1');
+      const hojaNombre=hojaTotal||hojaHoja1||wb.SheetNames[0];
+      ws=wb.Sheets[hojaNombre];
+
+      // Leer fecha del Excel (celda G2 / fila 2 col 7)
+      const fechaCelda=ws['G2'];
+      if(fechaCelda&&fechaCelda.v){
+        const fechaExcel=new Date(Math.round((fechaCelda.v-25569)*86400*1000));
+        const fechaStr=fechaExcel.toISOString().split('T')[0];
+        const fechaInput=document.getElementById('cc-fecha');
+        if(fechaInput) fechaInput.value=fechaStr;
+      }
+
+      // Estructura fija:
+      // Fila 12=G98, 13=G95, 14=GoA(DieselE+), 15=NEXA, 16=AdBlue
+      // Col B(1)=ventas, Col D(3)=existencias, Col F(5)=cisternas
+      // En XLSX: filas empiezan en 1, columnas en 0
+      // B=col index 1, D=col index 3, F=col index 5
+
+      const filaMap={
+        G98:  12,
+        G95:  13,
+        GoA:  14,
+        NEXA: 15,
+        AdBlue: 16,
+      };
+
+      const getCelda=(fila,col)=>{
+        // Convertir a notación A1
+        const colLetra=String.fromCharCode(64+col); // 1=A, 2=B...
+        const ref=colLetra+fila;
+        const celda=ws[ref];
+        return celda?parseFloat(celda.v)||0:0;
+      };
+
+      let importados=0;
+      Object.entries(filaMap).forEach(([fuel,fila])=>{
+        const ventas   =getCelda(fila,2); // Col B
+        const existencias=getCelda(fila,4); // Col D
+        const cisternas=getCelda(fila,6); // Col F
+
+        // Rellenar campos del formulario
+        // ventas → campo ventas
+        const venEl=document.getElementById(`cc-ven-${fuel}`)||document.getElementById(`cc-ven-GoA`);
+
+        if(fuel==='G98'){
+          setCC('G98',ventas,cisternas,existencias);
+        } else if(fuel==='G95'){
+          setCC('G95',ventas,cisternas,existencias);
+        } else if(fuel==='GoA'){
+          setCC('GoA',ventas,cisternas,existencias);
+        } else if(fuel==='NEXA'){
+          setCC('NEXA',ventas,cisternas,existencias);
+        }
+        if(ventas>0) importados++;
+      });
+
+      updCuadre();
+      if(status){
+        status.style.display='block';
+        status.textContent=importados>0?`✓ Excel importado — ${importados} combustibles cargados`:'⚠ No se encontraron datos de combustible';
+        status.style.color=importados>0?'var(--green)':'var(--amber)';
+      }
+    }catch(err){
+      console.error('Error leyendo Excel:',err);
+      if(status){status.textContent='Error al leer el Excel: '+err.message;status.style.color='var(--red)';}
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function setCC(fuel,ventas,cisternas,existencias){
+  // ventas del día
+  const venEl=document.getElementById(`cc-ven-${fuel}`);
+  if(venEl&&ventas>0) venEl.value=Math.round(ventas);
+
+  // cisternas
+  const cisEl=document.getElementById(`cc-cis-${fuel}`);
+  if(cisEl&&cisternas>0) cisEl.value=Math.round(cisternas);
+
+  // existencias = existencias finales del día anterior = iniciales de hoy
+  // En el Excel las existencias son el stock actual DESPUÉS de ventas y cisternas
+  // Así que las usamos como existencias finales
+  const finEl=document.getElementById(`cc-fin-${fuel}`);
+  if(finEl&&existencias>0) finEl.value=Math.round(existencias);
+
+  // Calcular existencias iniciales: finales + ventas - cisternas
+  const ini=existencias+ventas-cisternas;
+  const iniEl=document.getElementById(`cc-ini-${fuel}`);
+  if(iniEl&&ini>0) iniEl.value=Math.round(ini);
 }
 
 async function setupCierre(){
