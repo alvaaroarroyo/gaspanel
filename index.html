@@ -1598,6 +1598,17 @@ const MAPA_ESTACIONES = {
   'VALDEMORO':     ['Valdemoro'],
 };
 
+// Clave corta para columnas de Supabase
+const ST_KEY={
+  'El Escorial (M.D.+M.I.)': 'escorial',
+  'Europolis':                'europolis',
+  'Las Matas':                'matas',
+  'Valdefuentes':             'valdefuentes',
+  'Valdemoro':                'valdemoro',
+  'Monte del Pilar':          'pilar',
+  'Saltos del Sil':           'saltos',
+};
+
 // Estado precios en memoria
 let preciosActuales = {
   fecha: new Date().toISOString().split('T')[0],
@@ -1695,17 +1706,20 @@ async function renderPrecios(){
         </thead>
         <tbody id="margenes-body">
           ${STATIONS.map(st=>`
-          <tr id="row-${st.replace(/[^a-z]/gi,'_')}">
+          <tr id="row-${st.replace(/[^a-zA-Z0-9]/g,'_')}">
             <td style="font-weight:500;font-size:11px">${st}</td>
-            ${Object.keys(FUELS).map(k=>`
-            <td style="text-align:center;padding:6px 8px">
-              <input id="pvp-${st.replace(/[^a-z]/gi,'_')}-${k}" type="number" step="0.001"
-                style="width:70px;height:26px;text-align:center;border:1px solid var(--border);border-radius:5px;font-family:monospace;font-size:11px;padding:0 4px;outline:none"
-                placeholder="0.000"
-                value="${preciosHoy?parseFloat(preciosHoy[(k.toLowerCase()+'_pvp_'+st.toLowerCase().replace(/[^a-z]/g,'_'))]||0).toFixed(3)||'':''}"
-                oninput="updMargenes()"/>
-              <div id="mg-${st.replace(/[^a-z]/gi,'_')}-${k}" style="font-size:10px;font-weight:600;margin-top:2px;color:var(--t3)">—</div>
-            </td>`).join('')}
+            ${Object.keys(FUELS).map(k=>{
+              const stId=st.replace(/[^a-zA-Z0-9]/g,'_');
+              const stKey=ST_KEY[st]||st.toLowerCase().substring(0,8);
+              const savedVal=preciosHoy?parseFloat(preciosHoy[k.toLowerCase()+'_pvp_'+stKey]||0)||'':'';
+              return`<td style="text-align:center;padding:6px 8px">
+                <input id="pvp-${stId}-${k}" type="number" step="0.001"
+                  style="width:70px;height:26px;text-align:center;border:1px solid var(--border);border-radius:5px;font-family:monospace;font-size:11px;padding:0 4px;outline:none"
+                  placeholder="0.000"
+                  value="${savedVal}"
+                  oninput="updMargenes()"/>
+                <div id="mg-${stId}-${k}" style="font-size:10px;font-weight:600;margin-top:2px;color:var(--t3)">—</div>
+              </td>`;}).join('')}
           </tr>`).join('')}
         </tbody>
       </table>
@@ -1757,9 +1771,10 @@ function setupPreciosEvents(){
 
     // Guardar PVP de cada estación
     STATIONS.forEach(st=>{
-      const stKey=st.replace(/[^a-z]/gi,'_').toLowerCase();
+      const stKey=ST_KEY[st]||st.toLowerCase().substring(0,8);
+      const stId=st.replace(/[^a-zA-Z0-9]/g,'_');
       Object.keys(FUELS).forEach(k=>{
-        const val=parseFloat(document.getElementById(`pvp-${st.replace(/[^a-z]/gi,'_')}-${k}`)?.value)||0;
+        const val=parseFloat(document.getElementById(`pvp-${stId}-${k}`)?.value)||0;
         data[k.toLowerCase()+'_pvp_'+stKey]=val;
         // Actualizar FUELS si es la estación seleccionada
         if(st===curStation) FUELS[k].pvp=val||FUELS[k].pvp;
@@ -1787,8 +1802,9 @@ function updMargenes(){
   STATIONS.forEach(st=>{
     Object.keys(FUELS).forEach(k=>{
       const pc=parseFloat(document.getElementById(`pc-${k}`)?.value)||0;
-      const pvpEl=document.getElementById(`pvp-${st.replace(/[^a-z]/gi,'_')}-${k}`);
-      const mgEl=document.getElementById(`mg-${st.replace(/[^a-z]/gi,'_')}-${k}`);
+      const stId=st.replace(/[^a-zA-Z0-9]/g,'_');
+      const pvpEl=document.getElementById(`pvp-${stId}-${k}`);
+      const mgEl=document.getElementById(`mg-${stId}-${k}`);
       if(!pvpEl||!mgEl) return;
       const pvp=parseFloat(pvpEl.value)||0;
       if(pvp>0&&pc>0){
