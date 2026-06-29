@@ -617,14 +617,42 @@ function tankSVG(k,stN){
 
 async function renderCisternas(){
   const content=document.getElementById('content');
-  const stN=curStation;const sd=getSD();const st=STOCK[stN];
+  const stN=curStation;const sd=getSD();
+
+  // Cargar último cierre de Supabase para obtener existencias reales
+  let st=STOCK[stN]; // fallback a estimación
+  let ultimoCierre=null;
+  let ultimaFecha=null;
+
+  if(currentUser?.id!=='demo'){
+    const {data:cierreReal}=await sb.from('cierres_caja')
+      .select('*')
+      .eq('estacion',stN)
+      .order('fecha',{ascending:false})
+      .limit(1)
+      .single();
+
+    if(cierreReal){
+      ultimoCierre=cierreReal;
+      ultimaFecha=new Date(cierreReal.fecha+'T12:00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'});
+      // Usar existencias finales del cierre como stock actual
+      st={
+        GoA:  cierreReal.goa_fin||STOCK[stN].GoA,
+        G95:  cierreReal.g95_fin||STOCK[stN].G95,
+        G98:  cierreReal.g98_fin||STOCK[stN].G98,
+        NEXA: cierreReal.nexa_fin||STOCK[stN].NEXA,
+      };
+      // Actualizar también el STOCK global para que previsión y cierre lo usen
+      STOCK[stN]=st;
+    }
+  }
 
   // Cargar cisternas guardadas en Supabase
   const cistSaved=await sbCargarCisternas();
 
   content.innerHTML=`
   <div class="card" style="margin-bottom:14px">
-    <div class="card-hd"><div><div class="card-title">Nivel de tanques</div><div class="card-sub">${stN} · días según media histórica de consumo</div></div></div>
+    <div class="card-hd"><div><div class="card-title">Nivel de tanques</div><div class="card-sub" id="tank-sub">${stN} · cargando datos reales...</div></div></div>
     <div class="tank-grid">${Object.keys(FUELS).map(k=>tankSVG(k,stN)).join('')}</div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding-top:14px;border-top:1px solid #F1F5F9">
       ${Object.entries(FUELS).map(([k,fc])=>{
@@ -682,6 +710,18 @@ async function renderCisternas(){
       </table>
     </div>
   </div>`;
+
+  // Actualizar subtítulo con fuente de datos
+  const tankSub=document.getElementById('tank-sub');
+  if(tankSub){
+    if(ultimaFecha){
+      tankSub.textContent=`${stN} · datos reales del cierre del ${ultimaFecha}`;
+      tankSub.style.color='var(--green)';
+    } else {
+      tankSub.textContent=`${stN} · estimación (sin cierres en Supabase aún)`;
+      tankSub.style.color='var(--amber)';
+    }
+  }
 
   // Eventos
   document.getElementById('c-guardar')?.addEventListener('click',async()=>{
@@ -1153,111 +1193,142 @@ function pageCierre(){
 
 
 // ── LEER EXCEL ────────────────────────────────────────────────────────────────
-function leerExcel(input){
+async function leerExcel(input){
   const file=input.files[0];
   if(!file) return;
   const status=document.getElementById('excel-status');
-  if(status){status.style.display='block';status.textContent='Leyendo Excel...';}
+  if(status){status.style.display='block';status.textContent='Leyendo Excel...';status.style.color='var(--t2)';}
 
   const reader=new FileReader();
-  reader.onload=function(e){
+  reader.onload=async function(e){
     try{
       const data=new Uint8Array(e.target.result);
       const wb=XLSX.read(data,{type:'array'});
 
-      // Buscar la hoja correcta (TOTAL o primera hoja con datos)
-      let ws=null;
+      // Buscar hoja: primero TOTAL, luego Hoja1, luego la primera
       const hojaTotal=wb.SheetNames.find(n=>n.toUpperCase().includes('TOTAL'));
-      const hojaHoja1=wb.SheetNames.find(n=>n.toUpperCase().includes('HOJA1')||n==='Hoja1');
+      const hojaHoja1=wb.SheetNames.find(n=>n.toLowerCase().includes('hoja1')||n==='Hoja1');
       const hojaNombre=hojaTotal||hojaHoja1||wb.SheetNames[0];
-      ws=wb.Sheets[hojaNombre];
+      const ws=wb.Sheets[hojaNombre];
 
-      // Leer fecha del Excel (celda G2 / fila 2 col 7)
+      // Leer fecha del Excel (celda G2)
+      let fechaStr='';
       const fechaCelda=ws['G2'];
       if(fechaCelda&&fechaCelda.v){
+        // Fecha Excel es número de días desde 1900
         const fechaExcel=new Date(Math.round((fechaCelda.v-25569)*86400*1000));
-        const fechaStr=fechaExcel.toISOString().split('T')[0];
+        fechaStr=fechaExcel.toISOString().split('T')[0];
         const fechaInput=document.getElementById('cc-fecha');
         if(fechaInput) fechaInput.value=fechaStr;
       }
 
-      // Estructura fija:
-      // Fila 12=G98, 13=G95, 14=GoA(DieselE+), 15=NEXA, 16=AdBlue
-      // Col B(1)=ventas, Col D(3)=existencias, Col F(5)=cisternas
-      // En XLSX: filas empiezan en 1, columnas en 0
-      // B=col index 1, D=col index 3, F=col index 5
+      // Mapa fijo de filas por combustible
+      // Fila 12=G98, 13=G95, 14=GoA(Diesel E+), 15=NEXA, 16=AdBlue
+      // Col B=ventas, Col D=existencias finales del Excel, Col F=cisternas
+      const filaMap={G98:12, G95:13, GoA:14, NEXA:15};
 
-      const filaMap={
-        G98:  12,
-        G95:  13,
-        GoA:  14,
-        NEXA: 15,
-        AdBlue: 16,
+      const getCelda=(fila,colLetra)=>{
+        const celda=ws[colLetra+fila];
+        return celda?Math.round(parseFloat(celda.v)||0):0;
       };
 
-      const getCelda=(fila,col)=>{
-        // Convertir a notación A1
-        const colLetra=String.fromCharCode(64+col); // 1=A, 2=B...
-        const ref=colLetra+fila;
-        const celda=ws[ref];
-        return celda?parseFloat(celda.v)||0:0;
-      };
-
-      let importados=0;
+      // Leer ventas, existencias finales y cisternas del Excel
+      const datosExcel={};
       Object.entries(filaMap).forEach(([fuel,fila])=>{
-        const ventas   =getCelda(fila,2); // Col B
-        const existencias=getCelda(fila,4); // Col D
-        const cisternas=getCelda(fila,6); // Col F
+        datosExcel[fuel]={
+          ventas:    getCelda(fila,'B'),
+          finExcel:  getCelda(fila,'D'), // existencias según Excel (post-ventas, post-cisternas)
+          cisternas: getCelda(fila,'F'),
+        };
+      });
 
-        // Rellenar campos del formulario
-        // ventas → campo ventas
-        const venEl=document.getElementById(`cc-ven-${fuel}`)||document.getElementById(`cc-ven-GoA`);
+      // Buscar cierre de AYER en Supabase para obtener existencias iniciales
+      if(status) status.textContent='Buscando existencias del día anterior...';
 
-        if(fuel==='G98'){
-          setCC('G98',ventas,cisternas,existencias);
-        } else if(fuel==='G95'){
-          setCC('G95',ventas,cisternas,existencias);
-        } else if(fuel==='GoA'){
-          setCC('GoA',ventas,cisternas,existencias);
-        } else if(fuel==='NEXA'){
-          setCC('NEXA',ventas,cisternas,existencias);
+      const ayer=new Date();ayer.setDate(ayer.getDate()-1);
+      const ayerStr=ayer.toISOString().split('T')[0];
+      // Si el Excel tiene fecha, usamos el día anterior a esa fecha
+      const fechaBuscar=fechaStr?new Date(fechaStr+'T12:00:00'):ayer;
+      fechaBuscar.setDate(fechaBuscar.getDate()-1);
+      const fechaBuscarStr=fechaBuscar.toISOString().split('T')[0];
+
+      let existIniciales={GoA:0,G95:0,G98:0,NEXA:0};
+      let cierreAyerEncontrado=false;
+
+      if(currentUser?.id!=='demo'){
+        const {data:cierreAyer}=await sb.from('cierres_caja')
+          .select('goa_fin,g95_fin,g98_fin,nexa_fin')
+          .eq('estacion',curStation)
+          .eq('fecha',fechaBuscarStr)
+          .single();
+
+        if(cierreAyer){
+          existIniciales={
+            GoA:  cierreAyer.goa_fin||0,
+            G95:  cierreAyer.g95_fin||0,
+            G98:  cierreAyer.g98_fin||0,
+            NEXA: cierreAyer.nexa_fin||0,
+          };
+          cierreAyerEncontrado=true;
         }
-        if(ventas>0) importados++;
+      }
+
+      // Rellenar formulario
+      Object.keys(filaMap).forEach(fuel=>{
+        const d=datosExcel[fuel];
+        const ini=existIniciales[fuel];
+
+        // Existencias iniciales: del cierre de ayer (o vacío si no hay)
+        const iniEl=document.getElementById(`cc-ini-${fuel}`);
+        if(iniEl){
+          if(ini>0) iniEl.value=ini;
+          else iniEl.value=''; // encargado las mete a mano la primera vez
+        }
+
+        // Cisternas del Excel
+        const cisEl=document.getElementById(`cc-cis-${fuel}`);
+        if(cisEl&&d.cisternas>0) cisEl.value=d.cisternas;
+
+        // Ventas del Excel
+        const venEl=document.getElementById(`cc-ven-${fuel}`);
+        if(venEl&&d.ventas>0) venEl.value=d.ventas;
+
+        // Existencias finales: iniciales + cisternas - ventas
+        // Si tenemos iniciales, las calculamos. Si no, usamos las del Excel
+        const finEl=document.getElementById(`cc-fin-${fuel}`);
+        if(finEl){
+          if(ini>0){
+            const finCalc=ini+d.cisternas-d.ventas;
+            finEl.value=Math.max(0,finCalc);
+          } else {
+            // Sin cierre anterior, usamos las existencias del Excel directamente
+            if(d.finExcel>0) finEl.value=d.finExcel;
+          }
+        }
       });
 
       updCuadre();
+
       if(status){
         status.style.display='block';
-        status.textContent=importados>0?`✓ Excel importado — ${importados} combustibles cargados`:'⚠ No se encontraron datos de combustible';
-        status.style.color=importados>0?'var(--green)':'var(--amber)';
+        if(cierreAyerEncontrado){
+          status.textContent='✓ Excel importado · existencias iniciales de Supabase';
+          status.style.color='var(--green)';
+        } else {
+          status.textContent='✓ Excel importado · introduce existencias iniciales manualmente';
+          status.style.color='var(--amber)';
+        }
       }
+
     }catch(err){
       console.error('Error leyendo Excel:',err);
-      if(status){status.textContent='Error al leer el Excel: '+err.message;status.style.color='var(--red)';}
+      if(status){
+        status.textContent='Error al leer el Excel: '+err.message;
+        status.style.color='var(--red)';
+      }
     }
   };
   reader.readAsArrayBuffer(file);
-}
-
-function setCC(fuel,ventas,cisternas,existencias){
-  // ventas del día
-  const venEl=document.getElementById(`cc-ven-${fuel}`);
-  if(venEl&&ventas>0) venEl.value=Math.round(ventas);
-
-  // cisternas
-  const cisEl=document.getElementById(`cc-cis-${fuel}`);
-  if(cisEl&&cisternas>0) cisEl.value=Math.round(cisternas);
-
-  // existencias = existencias finales del día anterior = iniciales de hoy
-  // En el Excel las existencias son el stock actual DESPUÉS de ventas y cisternas
-  // Así que las usamos como existencias finales
-  const finEl=document.getElementById(`cc-fin-${fuel}`);
-  if(finEl&&existencias>0) finEl.value=Math.round(existencias);
-
-  // Calcular existencias iniciales: finales + ventas - cisternas
-  const ini=existencias+ventas-cisternas;
-  const iniEl=document.getElementById(`cc-ini-${fuel}`);
-  if(iniEl&&ini>0) iniEl.value=Math.round(ini);
 }
 
 async function setupCierre(){
