@@ -1588,149 +1588,163 @@ async function cargarHistorialCierres(){
 
 
 // ── PRECIOS DEL DÍA ──────────────────────────────────────────────────────────
-const GRUPO_A = ['Europolis','Las Matas','El Escorial (M.D.+M.I.)','Saltos del Sil','Monte del Pilar'];
-const GRUPO_B = ['Valdemoro','Valdefuentes'];
+// Mapa estaciones Excel → GasPanel
+const MAPA_ESTACIONES = {
+  'ESCORIAL':      ['El Escorial (M.D.+M.I.)'],
+  'EUROPOLIS':     ['Europolis'],
+  'MATAS':         ['Las Matas'],
+  'MAJADAHONDA':   ['Saltos del Sil','Monte del Pilar'],
+  'ARROYOMOLINOS': ['Valdefuentes'],
+  'VALDEMORO':     ['Valdemoro'],
+};
+
+// Estado precios en memoria
+let preciosActuales = {
+  fecha: new Date().toISOString().split('T')[0],
+  pc: {GoA:0, G95:0, G98:0, NEXA:0},
+  pvp: {}, // pvp[estacion][fuel]
+};
 
 async function renderPrecios(){
-  const content=document.getElementById('content');
+  const el=document.getElementById('content');
   const hoy=new Date().toISOString().split('T')[0];
-  const hoyLabel=new Date().toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
 
-  // Cargar precios de hoy si ya existen
+  // Cargar precios de hoy si existen
   let preciosHoy=null;
   if(currentUser?.id!=='demo'){
-    const {data}=await sb.from('precios_diarios')
-      .select('*').eq('fecha',hoy).single();
+    const {data}=await sb.from('precios_diarios').select('*').eq('fecha',hoy).single();
     if(data) preciosHoy=data;
   }
 
-  // Cargar historial últimos 7 días
+  // Cargar historial
   let historial=[];
   if(currentUser?.id!=='demo'){
-    const {data}=await sb.from('precios_diarios')
-      .select('*').order('fecha',{ascending:false}).limit(7);
+    const {data}=await sb.from('precios_diarios').select('*').order('fecha',{ascending:false}).limit(7);
     if(data) historial=data;
   }
 
-  const p=preciosHoy||{};
-
-  content.innerHTML=`
-  <!-- BANNER si ya hay precios hoy -->
+  el.innerHTML=`
   ${preciosHoy?`<div style="background:var(--green-l);border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:8px;font-size:12px;color:#166534">
     <i class="ti ti-check" style="font-size:16px"></i>
     <strong>Precios del día ya guardados</strong> — puedes modificarlos si han cambiado
   </div>`:''}
 
-  <div class="card" style="margin-bottom:14px;border:1px solid var(--blue-m);background:#FAFCFF">
+  <div class="card" style="margin-bottom:14px">
     <div class="card-hd">
-      <div><div class="card-title" style="color:var(--blue)"><i class="ti ti-tag" style="font-size:13px;margin-right:5px"></i>Precios del día — ${hoyLabel}</div>
-      <div class="card-sub">Introduce los precios de hoy y la app calcula los márgenes automáticamente</div></div>
-      <input type="date" id="precio-fecha" class="f-input" style="width:160px" value="${hoy}"/>
+      <div><div class="card-title"><i class="ti ti-file-spreadsheet" style="font-size:13px;margin-right:5px;color:var(--blue)"></i>Importar precios desde Excel</div>
+      <div class="card-sub">Sube el Excel de Repsol y el de precios de venta — se calculan todos los márgenes automáticamente</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="background:var(--blue-l);border:1.5px dashed #93C5FD;border-radius:8px;padding:14px;display:flex;align-items:center;gap:10px">
+        <i class="ti ti-building-store" style="font-size:22px;color:var(--blue);flex-shrink:0"></i>
+        <div style="flex:1">
+          <div style="font-size:11px;font-weight:600;color:var(--blue);margin-bottom:2px">Excel Repsol (precio de compra)</div>
+          <div style="font-size:10px;color:#3B82F6">Historico_Precios_XXXX.xlsx</div>
+        </div>
+        <label style="cursor:pointer">
+          <input type="file" id="excel-repsol" accept=".xlsx,.xls" style="display:none" onchange="leerExcelRepsol(this)"/>
+          <div class="btn btn-p bsm" style="pointer-events:none"><i class="ti ti-upload" style="font-size:11px"></i> Subir</div>
+        </label>
+      </div>
+      <div style="background:var(--green-l);border:1.5px dashed #BBF7D0;border-radius:8px;padding:14px;display:flex;align-items:center;gap:10px">
+        <i class="ti ti-tag" style="font-size:22px;color:var(--green);flex-shrink:0"></i>
+        <div style="flex:1">
+          <div style="font-size:11px;font-weight:600;color:var(--green);margin-bottom:2px">Excel Precios de venta (PVP)</div>
+          <div style="font-size:10px;color:#16A34A">PRECIOS.xlsx</div>
+        </div>
+        <label style="cursor:pointer">
+          <input type="file" id="excel-pvp" accept=".xlsx,.xls" style="display:none" onchange="leerExcelPVP(this)"/>
+          <div class="btn" style="pointer-events:none;background:var(--green);color:#fff;height:28px;padding:0 10px;font-size:11px;border-radius:7px"><i class="ti ti-upload" style="font-size:11px"></i> Subir</div>
+        </label>
+      </div>
+    </div>
+    <div id="import-status" style="display:none;margin-top:10px;font-size:11px;padding:8px 12px;border-radius:7px"></div>
+  </div>
+
+  <!-- TABLA DE MÁRGENES -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-hd">
+      <div><div class="card-title">Márgenes por estación — <span id="precio-fecha-label">${new Date().toLocaleDateString('es-ES',{day:'numeric',month:'long'})}</span></div>
+      <div class="card-sub">Precio de compra Repsol vs PVP de cada estación</div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="date" id="precio-fecha" class="f-input" style="width:150px" value="${hoy}"/>
+        <button class="btn btn-p" id="btn-guardar-precio"><i class="ti ti-device-floppy" style="font-size:12px"></i> Guardar</button>
+      </div>
     </div>
 
-    <!-- PRECIO DE COMPRA REPSOL -->
-    <div style="margin-bottom:20px">
-      <div style="font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-        <i class="ti ti-building-store" style="color:var(--blue);font-size:14px"></i> Precio de compra Repsol — igual para todas las estaciones
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+    <!-- Precio compra -->
+    <div style="background:#F8FAFC;border-radius:8px;padding:12px;margin-bottom:14px">
+      <div style="font-size:10px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Precio de compra Repsol</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
         ${Object.entries(FUELS).map(([k,fc])=>`
-        <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-            <span style="width:10px;height:10px;border-radius:50%;background:${fc.c};display:inline-block"></span>
-            <span style="font-size:11px;font-weight:600;color:${fc.c}">${fc.l}</span>
-          </div>
-          <label class="f-label">P. compra (€/L)</label>
-          <input id="pc-${k}" class="f-input mono" type="number" step="0.0001" value="${p[k.toLowerCase()+'_pc']||fc.pc}" oninput="updPrecios()"/>
-          <div id="pvs-${k}" style="font-size:10px;color:var(--t3);margin-top:4px">PVP s/IVA: <span class="mono">${f4(fc.pvp/1.10)} €</span></div>
+        <div>
+          <label class="f-label" style="display:flex;align-items:center;gap:4px"><span style="width:7px;height:7px;border-radius:50%;background:${fc.c};display:inline-block"></span>${fc.l}</label>
+          <input id="pc-${k}" class="f-input mono" type="number" step="0.0001" placeholder="0.0000" value="${preciosHoy?parseFloat(preciosHoy[k.toLowerCase()+'_pc']||0).toFixed(4):fc.pc.toFixed(4)}" oninput="updMargenes()"/>
         </div>`).join('')}
       </div>
     </div>
 
-    <!-- PVP GRUPO A -->
-    <div style="margin-bottom:20px">
-      <div style="font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-        <i class="ti ti-map-pin" style="color:var(--green);font-size:14px"></i> PVP Grupo A
-      </div>
-      <div style="font-size:10px;color:var(--t3);margin-bottom:10px">${GRUPO_A.join(' · ')}</div>
-      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
-        ${Object.entries(FUELS).map(([k,fc])=>`
-        <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-            <span style="width:10px;height:10px;border-radius:50%;background:${fc.c};display:inline-block"></span>
-            <span style="font-size:11px;font-weight:600;color:${fc.c}">${fc.l}</span>
-          </div>
-          <label class="f-label">PVP con IVA (€/L)</label>
-          <input id="pvpa-${k}" class="f-input mono" type="number" step="0.001" value="${p[k.toLowerCase()+'_pvp_a']||fc.pvp}" oninput="updPrecios()"/>
-          <div id="mga-${k}" style="font-size:11px;font-weight:600;margin-top:6px"></div>
-        </div>`).join('')}
-      </div>
+    <!-- Tabla de márgenes por estación -->
+    <div style="overflow-x:auto">
+      <table class="tbl" style="min-width:700px">
+        <thead>
+          <tr>
+            <th>Estación</th>
+            ${Object.values(FUELS).map(fc=>`<th style="text-align:center"><span style="display:flex;align-items:center;gap:4px;justify-content:center"><span style="width:7px;height:7px;border-radius:50%;background:${fc.c};display:inline-block"></span>${fc.l}</span></th>`).join('')}
+          </tr>
+        </thead>
+        <tbody id="margenes-body">
+          ${STATIONS.map(st=>`
+          <tr id="row-${st.replace(/[^a-z]/gi,'_')}">
+            <td style="font-weight:500;font-size:11px">${st}</td>
+            ${Object.keys(FUELS).map(k=>`
+            <td style="text-align:center;padding:6px 8px">
+              <input id="pvp-${st.replace(/[^a-z]/gi,'_')}-${k}" type="number" step="0.001"
+                style="width:70px;height:26px;text-align:center;border:1px solid var(--border);border-radius:5px;font-family:monospace;font-size:11px;padding:0 4px;outline:none"
+                placeholder="0.000"
+                value="${preciosHoy?parseFloat(preciosHoy[(k.toLowerCase()+'_pvp_'+st.toLowerCase().replace(/[^a-z]/g,'_'))]||0).toFixed(3)||'':''}"
+                oninput="updMargenes()"/>
+              <div id="mg-${st.replace(/[^a-z]/gi,'_')}-${k}" style="font-size:10px;font-weight:600;margin-top:2px;color:var(--t3)">—</div>
+            </td>`).join('')}
+          </tr>`).join('')}
+        </tbody>
+      </table>
     </div>
-
-    <!-- PVP GRUPO B -->
-    <div style="margin-bottom:20px">
-      <div style="font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-        <i class="ti ti-map-pin" style="color:var(--amber);font-size:14px"></i> PVP Grupo B
-      </div>
-      <div style="font-size:10px;color:var(--t3);margin-bottom:10px">${GRUPO_B.join(' · ')}</div>
-      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
-        ${Object.entries(FUELS).map(([k,fc])=>`
-        <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-            <span style="width:10px;height:10px;border-radius:50%;background:${fc.c};display:inline-block"></span>
-            <span style="font-size:11px;font-weight:600;color:${fc.c}">${fc.l}</span>
-          </div>
-          <label class="f-label">PVP con IVA (€/L)</label>
-          <input id="pvpb-${k}" class="f-input mono" type="number" step="0.001" value="${p[k.toLowerCase()+'_pvp_b']||fc.pvp}" oninput="updPrecios()"/>
-          <div id="mgb-${k}" style="font-size:11px;font-weight:600;margin-top:6px"></div>
-        </div>`).join('')}
-      </div>
-    </div>
-
-    <!-- RESUMEN MÁRGENES -->
-    <div id="precio-resumen" style="background:#F8FAFC;border-radius:8px;padding:14px;margin-bottom:16px"></div>
-
-    <button class="btn btn-p" style="width:100%;height:42px;font-size:13px" id="btn-guardar-precio">
-      <i class="ti ti-device-floppy" style="font-size:14px"></i> Guardar precios del día
-    </button>
   </div>
 
   <!-- HISTORIAL -->
   <div class="card">
-    <div class="card-hd"><div><div class="card-title">Historial de precios</div><div class="card-sub">Últimos 7 días guardados en Supabase</div></div></div>
+    <div class="card-hd"><div class="card-title">Historial de precios</div><div class="card-sub">Últimos días guardados</div></div>
     ${historial.length>0?`
     <table class="tbl">
-      <thead><tr><th>Fecha</th><th>GoA P.compra</th><th>G95 P.compra</th><th>G98 P.compra</th><th>NEXA P.compra</th><th>Margen GoA (A)</th><th>Margen GoA (B)</th></tr></thead>
+      <thead><tr><th>Fecha</th><th>GoA compra</th><th>G95 compra</th><th>G98 compra</th><th>NEXA compra</th></tr></thead>
       <tbody>${historial.map(h=>{
         const fecha=new Date(h.fecha+'T12:00:00');
-        const mGoAa=cM(h.goa_pvp_a||0,h.goa_pc||0);
-        const mGoAb=cM(h.goa_pvp_b||0,h.goa_pc||0);
         return`<tr>
           <td style="font-weight:500">${fecha.toLocaleDateString('es-ES',{day:'numeric',month:'short'})}</td>
-          <td class="mono">${(h.goa_pc||0).toFixed(4)} €</td>
-          <td class="mono">${(h.g95_pc||0).toFixed(4)} €</td>
-          <td class="mono">${(h.g98_pc||0).toFixed(4)} €</td>
-          <td class="mono">${(h.nexa_pc||0).toFixed(4)} €</td>
-          <td><span class="mono" style="font-weight:600;color:${mc(mGoAa)}">${f2(mGoAa)} cts</span></td>
-          <td><span class="mono" style="font-weight:600;color:${mc(mGoAb)}">${f2(mGoAb)} cts</span></td>
+          <td class="mono">${parseFloat(h.goa_pc||0).toFixed(4)} €</td>
+          <td class="mono">${parseFloat(h.g95_pc||0).toFixed(4)} €</td>
+          <td class="mono">${parseFloat(h.g98_pc||0).toFixed(4)} €</td>
+          <td class="mono">${parseFloat(h.nexa_pc||0).toFixed(4)} €</td>
         </tr>`;
       }).join('')}</tbody>
     </table>`:`
     <div style="text-align:center;padding:30px;color:var(--t3)">
       <i class="ti ti-tag" style="font-size:28px;display:block;margin-bottom:8px"></i>
-      Aún no hay precios guardados. Introduce los precios de hoy arriba.
+      Sube los Excel para importar los precios del día.
     </div>`}
   </div>`;
 
-  // Calcular márgenes iniciales
-  updPrecios();
+  updMargenes();
+  setupPreciosEvents();
+}
 
-  // Guardar
+function setupPreciosEvents(){
   document.getElementById('btn-guardar-precio')?.addEventListener('click', async()=>{
-    const fecha=document.getElementById('precio-fecha')?.value||hoy;
+    const fecha=document.getElementById('precio-fecha')?.value||new Date().toISOString().split('T')[0];
     const btn=document.getElementById('btn-guardar-precio');
     btn.disabled=true;
-    btn.innerHTML='<i class="ti ti-loader" style="font-size:14px"></i> Guardando...';
+    btn.innerHTML='<i class="ti ti-loader" style="font-size:12px"></i> Guardando...';
 
     const data={
       fecha,
@@ -1739,95 +1753,162 @@ async function renderPrecios(){
       g95_pc:  parseFloat(document.getElementById('pc-G95')?.value)||0,
       g98_pc:  parseFloat(document.getElementById('pc-G98')?.value)||0,
       nexa_pc: parseFloat(document.getElementById('pc-NEXA')?.value)||0,
-      goa_pvp_a:  parseFloat(document.getElementById('pvpa-GoA')?.value)||0,
-      g95_pvp_a:  parseFloat(document.getElementById('pvpa-G95')?.value)||0,
-      g98_pvp_a:  parseFloat(document.getElementById('pvpa-G98')?.value)||0,
-      nexa_pvp_a: parseFloat(document.getElementById('pvpa-NEXA')?.value)||0,
-      goa_pvp_b:  parseFloat(document.getElementById('pvpb-GoA')?.value)||0,
-      g95_pvp_b:  parseFloat(document.getElementById('pvpb-G95')?.value)||0,
-      g98_pvp_b:  parseFloat(document.getElementById('pvpb-G98')?.value)||0,
-      nexa_pvp_b: parseFloat(document.getElementById('pvpb-NEXA')?.value)||0,
     };
 
-    // Actualizar FUELS con los precios nuevos para que el resto de la app los use
-    Object.keys(FUELS).forEach(k=>{
-      FUELS[k].pc=data[k.toLowerCase()+'_pc']||FUELS[k].pc;
-      // Usar PVP del grupo de la estación seleccionada
-      const esMiGrupoA=GRUPO_A.includes(curStation);
-      FUELS[k].pvp=data[k.toLowerCase()+'_pvp_'+(esMiGrupoA?'a':'b')]||FUELS[k].pvp;
+    // Guardar PVP de cada estación
+    STATIONS.forEach(st=>{
+      const stKey=st.replace(/[^a-z]/gi,'_').toLowerCase();
+      Object.keys(FUELS).forEach(k=>{
+        const val=parseFloat(document.getElementById(`pvp-${st.replace(/[^a-z]/gi,'_')}-${k}`)?.value)||0;
+        data[k.toLowerCase()+'_pvp_'+stKey]=val;
+        // Actualizar FUELS si es la estación seleccionada
+        if(st===curStation) FUELS[k].pvp=val||FUELS[k].pvp;
+      });
     });
 
-    // Upsert — actualizar si ya existe para esa fecha
-    const {error}=await sb.from('precios_diarios').upsert(data,{onConflict:'fecha'});
+    // Actualizar precios compra en FUELS
+    Object.keys(FUELS).forEach(k=>{
+      FUELS[k].pc=data[k.toLowerCase()+'_pc']||FUELS[k].pc;
+    });
 
+    const {error}=await sb.from('precios_diarios').upsert(data,{onConflict:'fecha'});
     if(error){
-      toast('Error al guardar: '+error.message, false);
+      toast('Error: '+error.message, false);
     } else {
       toast('✓ Precios guardados correctamente');
     }
-
     btn.disabled=false;
-    btn.innerHTML='<i class="ti ti-device-floppy" style="font-size:14px"></i> Guardar precios del día';
+    btn.innerHTML='<i class="ti ti-device-floppy" style="font-size:12px"></i> Guardar';
     await renderPrecios();
   });
 }
 
-function updPrecios(){
-  // Actualizar márgenes en tiempo real para cada combustible y grupo
-  Object.keys(FUELS).forEach(k=>{
-    const pc=parseFloat(document.getElementById(`pc-${k}`)?.value)||0;
-    const pvpA=parseFloat(document.getElementById(`pvpa-${k}`)?.value)||0;
-    const pvpB=parseFloat(document.getElementById(`pvpb-${k}`)?.value)||0;
-
-    // PVP sin IVA
-    const pvsEl=document.getElementById(`pvs-${k}`);
-    if(pvsEl&&pc>0) pvsEl.innerHTML=`PVP s/IVA compra: <span class="mono">${f4(pc)} €</span>`;
-
-    // Margen Grupo A
-    const mgaEl=document.getElementById(`mga-${k}`);
-    if(mgaEl&&pvpA>0&&pc>0){
-      const m=cM(pvpA,pc);
-      mgaEl.innerHTML=`Margen: <span style="color:${mc(m)};font-size:13px">${f2(m)} cts</span> <span class="pill ${ml(m)[1]}" style="font-size:9px">${ml(m)[0]}</span>`;
-    }
-
-    // Margen Grupo B
-    const mgbEl=document.getElementById(`mgb-${k}`);
-    if(mgbEl&&pvpB>0&&pc>0){
-      const m=cM(pvpB,pc);
-      mgbEl.innerHTML=`Margen: <span style="color:${mc(m)};font-size:13px">${f2(m)} cts</span> <span class="pill ${ml(m)[1]}" style="font-size:9px">${ml(m)[0]}</span>`;
-    }
+function updMargenes(){
+  STATIONS.forEach(st=>{
+    Object.keys(FUELS).forEach(k=>{
+      const pc=parseFloat(document.getElementById(`pc-${k}`)?.value)||0;
+      const pvpEl=document.getElementById(`pvp-${st.replace(/[^a-z]/gi,'_')}-${k}`);
+      const mgEl=document.getElementById(`mg-${st.replace(/[^a-z]/gi,'_')}-${k}`);
+      if(!pvpEl||!mgEl) return;
+      const pvp=parseFloat(pvpEl.value)||0;
+      if(pvp>0&&pc>0){
+        const m=cM(pvp,pc);
+        mgEl.textContent=f2(m)+' cts';
+        mgEl.style.color=mc(m);
+        pvpEl.style.borderColor=mc(m);
+      } else {
+        mgEl.textContent='—';
+        mgEl.style.color='var(--t3)';
+        pvpEl.style.borderColor='var(--border)';
+      }
+    });
   });
+}
 
-  // Resumen general
-  const res=document.getElementById('precio-resumen');
-  if(!res) return;
-  const filas=Object.entries(FUELS).map(([k,fc])=>{
-    const pc=parseFloat(document.getElementById(`pc-${k}`)?.value)||0;
-    const pvpA=parseFloat(document.getElementById(`pvpa-${k}`)?.value)||0;
-    const pvpB=parseFloat(document.getElementById(`pvpb-${k}`)?.value)||0;
-    if(!pc||!pvpA) return '';
-    const mA=cM(pvpA,pc); const mB=cM(pvpB,pc);
-    return`<tr style="border-top:1px solid #F1F5F9">
-      <td style="padding:7px 0;font-size:11px;font-weight:600;color:${fc.c};display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:${fc.c};display:inline-block"></span>${fc.l}</td>
-      <td style="padding:7px 10px;font-family:monospace;font-size:11px">${f4(pc)} €</td>
-      <td style="padding:7px 10px"><span style="font-family:monospace;font-weight:700;font-size:13px;color:${mc(mA)}">${f2(mA)} cts</span></td>
-      <td style="padding:7px 10px"><span style="font-family:monospace;font-weight:700;font-size:13px;color:${mc(mB)}">${f2(mB)} cts</span></td>
-    </tr>`;
-  }).join('');
+function leerExcelRepsol(input){
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      // Fila 2 tiene los precios más recientes
+      // B=GoA(S/X Diesel), C=NEXA, D=G95, E=G98
+      const goa  = parseFloat(ws['B2']?.v)||0;
+      const nexa = parseFloat(ws['C2']?.v)||0;
+      const g95  = parseFloat(ws['D2']?.v)||0;
+      const g98  = parseFloat(ws['E2']?.v)||0;
+      // Leer fecha
+      const fechaRaw=ws['A2']?.v;
 
-  if(filas){
-    res.innerHTML=`
-    <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:8px">Resumen de márgenes del día</div>
-    <table style="width:100%;border-collapse:collapse">
-      <thead><tr>
-        <th style="text-align:left;font-size:10px;color:var(--t3);font-weight:500;padding-bottom:6px">Combustible</th>
-        <th style="text-align:left;font-size:10px;color:var(--t3);font-weight:500;padding:0 10px 6px">P.compra</th>
-        <th style="text-align:left;font-size:10px;color:var(--t3);font-weight:500;padding:0 10px 6px">Margen Grupo A</th>
-        <th style="text-align:left;font-size:10px;color:var(--t3);font-weight:500;padding:0 10px 6px">Margen Grupo B</th>
-      </tr></thead>
-      <tbody>${filas}</tbody>
-    </table>`;
-  }
+      if(goa>0){
+        const pcGoA=document.getElementById('pc-GoA');
+        const pcG95=document.getElementById('pc-G95');
+        const pcG98=document.getElementById('pc-G98');
+        const pcNEXA=document.getElementById('pc-NEXA');
+        if(pcGoA) pcGoA.value=goa.toFixed(4);
+        if(pcG95) pcG95.value=g95.toFixed(4);
+        if(pcG98) pcG98.value=g98.toFixed(4);
+        if(pcNEXA) pcNEXA.value=nexa.toFixed(4);
+
+        // Actualizar fecha si la tenemos
+        if(fechaRaw){
+          const partes=fechaRaw.toString().split('/');
+          if(partes.length===3){
+            const fechaISO=`${partes[2]}-${partes[1].padStart(2,'0')}-${partes[0].padStart(2,'0')}`;
+            const fechaInput=document.getElementById('precio-fecha');
+            if(fechaInput) fechaInput.value=fechaISO;
+          }
+        }
+
+        updMargenes();
+        mostrarStatus('✓ Excel Repsol importado — GoA: '+goa.toFixed(4)+' · G95: '+g95.toFixed(4)+' · G98: '+g98.toFixed(4)+' · NEXA: '+nexa.toFixed(4), 'green');
+      } else {
+        mostrarStatus('⚠ No se encontraron precios en el Excel', 'amber');
+      }
+    }catch(err){
+      mostrarStatus('Error al leer Excel Repsol: '+err.message, 'red');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function leerExcelPVP(input){
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+
+      // Estructura: Fila 3=cabeceras, Fila 4=G95, 5=G98, 6=GoA(E+), 7=NEXA
+      // Cols: C=Escorial, D=Europolis, E=Matas, F=Majadahonda, G=Arroyomolinos, H=Valdemoro
+      const colMap={
+        C: ['El Escorial (M.D.+M.I.)'],
+        D: ['Europolis'],
+        E: ['Las Matas'],
+        F: ['Saltos del Sil','Monte del Pilar'],
+        G: ['Valdefuentes'],
+        H: ['Valdemoro'],
+      };
+      const filaFuel={G95:4, G98:5, GoA:6, NEXA:7};
+
+      let importados=0;
+      Object.entries(colMap).forEach(([col, estaciones])=>{
+        estaciones.forEach(st=>{
+          const stId=st.replace(/[^a-z]/gi,'_');
+          Object.entries(filaFuel).forEach(([fuel,fila])=>{
+            const celda=ws[col+fila];
+            if(celda&&celda.v){
+              // Los precios en el Excel son 1529 → 1.529
+              const pvp=parseFloat(celda.v)/1000;
+              const pvpEl=document.getElementById(`pvp-${stId}-${fuel}`);
+              if(pvpEl){
+                pvpEl.value=pvp.toFixed(3);
+                importados++;
+              }
+            }
+          });
+        });
+      });
+
+      updMargenes();
+      mostrarStatus(`✓ Excel PVP importado — ${importados} precios cargados`, 'green');
+    }catch(err){
+      mostrarStatus('Error al leer Excel PVP: '+err.message, 'red');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function mostrarStatus(msg, color){
+  const el=document.getElementById('import-status');
+  if(!el)return;
+  el.style.display='block';
+  el.textContent=msg;
+  el.style.background=color==='green'?'var(--green-l)':color==='amber'?'var(--amber-l)':'var(--red-l)';
+  el.style.color=color==='green'?'#166534':color==='amber'?'#78350F':'#7F1D1D';
+  el.style.border=`1px solid ${color==='green'?'#BBF7D0':color==='amber'?'#FCD34D':'#FECACA'}`;
 }
 
 
