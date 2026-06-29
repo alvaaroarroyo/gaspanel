@@ -1,38 +1,1864 @@
-create table if not exists precios_diarios (
-  id uuid default gen_random_uuid() primary key,
-  fecha date not null,
-  -- Precios de compra Repsol (iguales para todas las estaciones)
-  goa_pc  numeric,
-  g95_pc  numeric,
-  g98_pc  numeric,
-  nexa_pc numeric,
-  -- PVP Grupo A (Europolis, Las Matas, El Escorial, Saltos del Sil, Monte del Pilar)
-  goa_pvp_a  numeric,
-  g95_pvp_a  numeric,
-  g98_pvp_a  numeric,
-  nexa_pvp_a numeric,
-  -- PVP Grupo B (Valdemoro, Arroyomolinos)
-  goa_pvp_b  numeric,
-  g95_pvp_b  numeric,
-  g98_pvp_b  numeric,
-  nexa_pvp_b numeric,
-  usuario_id uuid references auth.users(id),
-  created_at timestamp default now()
-);
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>GasPanel — Gestión de estaciones de servicio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --dark:#0F172A;--blue:#2563EB;--blue-l:#EFF6FF;--blue-m:#BFDBFE;
+  --green:#16A34A;--green-l:#F0FDF4;
+  --amber:#D97706;--amber-l:#FFFBEB;
+  --red:#DC2626;--red-l:#FEF2F2;
+  --border:#E2E8F0;--surf:#fff;--bg:#F7F8FA;
+  --t2:#475569;--t3:#94A3B8;--r:10px;--rs:7px;
+}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--dark);font-size:13px}
+.auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0F172A 0%,#1E3A5F 50%,#0F172A 100%);position:relative;overflow:hidden}
+.auth-bg{position:absolute;inset:0;opacity:.04;background-image:radial-gradient(circle,#fff 1px,transparent 1px);background-size:32px 32px}
+.auth-card{background:#fff;border-radius:16px;padding:40px;width:100%;max-width:420px;position:relative;z-index:1;box-shadow:0 25px 60px rgba(0,0,0,.35)}
+.brand{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:32px}
+.brand-icon{width:48px;height:48px;background:linear-gradient(135deg,#2563EB,#1D4ED8);border-radius:12px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(37,99,235,.4)}
+.brand-icon svg{width:26px;height:26px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.brand-name{font-size:26px;font-weight:700;color:var(--dark);letter-spacing:-.5px}
+.brand-name span{color:var(--blue)}
+.auth-tabs{display:flex;background:#F1F5F9;border-radius:var(--rs);padding:3px;margin-bottom:28px}
+.auth-tab{flex:1;padding:7px;border-radius:5px;border:none;background:none;font-size:13px;font-weight:500;cursor:pointer;color:var(--t2);transition:all .2s;font-family:inherit}
+.auth-tab.on{background:#fff;color:var(--dark);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.auth-form{display:flex;flex-direction:column;gap:14px}
+.auth-field label{display:block;font-size:12px;font-weight:500;color:var(--t2);margin-bottom:5px}
+.auth-field input{width:100%;height:40px;padding:0 12px;border:1.5px solid var(--border);border-radius:var(--rs);font-size:13px;color:var(--dark);font-family:inherit;outline:none;transition:border-color .15s,box-shadow .15s}
+.auth-field input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.auth-btn{width:100%;height:42px;background:var(--blue);color:#fff;border:none;border-radius:var(--rs);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s}
+.auth-btn:hover{background:#1D4ED8}
+.auth-btn:disabled{background:#93C5FD;cursor:not-allowed}
+.auth-divider{text-align:center;font-size:11px;color:var(--t3);position:relative;margin:4px 0}
+.auth-divider::before,.auth-divider::after{content:'';position:absolute;top:50%;width:42%;height:1px;background:var(--border)}
+.auth-divider::before{left:0}.auth-divider::after{right:0}
+.auth-demo{width:100%;height:38px;background:none;border:1.5px solid var(--border);border-radius:var(--rs);font-size:13px;font-weight:500;color:var(--t2);cursor:pointer;font-family:inherit;transition:all .15s}
+.auth-demo:hover{border-color:var(--blue);color:var(--blue)}
+.auth-msg{border-radius:var(--rs);padding:10px 12px;font-size:12px;display:none}
+.auth-err{background:var(--red-l);border:1px solid #FECACA;color:#7F1D1D}
+.auth-ok{background:var(--green-l);border:1px solid #BBF7D0;color:#166534}
+.auth-feats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:20px}
+.auth-feat{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t3)}
+.auth-feat i{font-size:13px;color:var(--blue)}
+.auth-tag{text-align:center;font-size:11px;color:rgba(255,255,255,.35);margin-top:20px;line-height:1.6}
+.app{display:flex;height:100vh;overflow:hidden}
+.sb{width:214px;background:var(--dark);display:flex;flex-direction:column;flex-shrink:0}
+.sb-hd{display:flex;align-items:center;gap:10px;padding:14px 12px;border-bottom:1px solid rgba(255,255,255,.07)}
+.sb-icon{width:30px;height:30px;background:var(--blue);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sb-icon svg{width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.nav{flex:1;padding:8px;overflow-y:auto;display:flex;flex-direction:column;gap:1px}
+.nav-sec{font-size:10px;color:rgba(255,255,255,.3);letter-spacing:.08em;text-transform:uppercase;padding:10px 6px 3px;font-weight:600}
+.nav-btn{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:6px;border:none;background:none;color:#CBD5E1;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;text-align:left;width:100%;white-space:nowrap;transition:all .15s}
+.nav-btn:hover{background:rgba(255,255,255,.08);color:#fff}
+.nav-btn.active{background:var(--blue);color:#fff}
+.nav-btn i{font-size:15px;flex-shrink:0}
+.nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px}
+.nav-ai{margin-left:auto;background:rgba(99,102,241,.3);color:#C7D2FE;font-size:10px;padding:1px 5px;border-radius:8px}
+.sb-foot{padding:10px 8px;border-top:1px solid rgba(255,255,255,.07)}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.topbar{height:54px;background:var(--surf);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;flex-shrink:0}
+.pg-title{font-size:15px;font-weight:600}
+.tb-right{display:flex;align-items:center;gap:8px}
+.st-sel{display:flex;align-items:center;gap:5px;background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);padding:0 10px;height:33px}
+.st-sel select{border:none;background:none;font-size:12px;color:var(--dark);font-family:inherit;cursor:pointer;outline:none}
+.db-badge{font-size:10px;color:var(--green);background:var(--green-l);border:1px solid #BBF7D0;border-radius:var(--rs);padding:0 9px;height:33px;display:flex;align-items:center;gap:4px}
+.logout-btn{height:33px;padding:0 12px;border-radius:var(--rs);border:1px solid var(--border);background:none;font-size:12px;color:var(--t2);cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px}
+.logout-btn:hover{background:var(--red-l);color:var(--red);border-color:#FECACA}
+.content{flex:1;overflow-y:auto;padding:20px}
+.card{background:var(--surf);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px}
+.card-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.card-title{font-size:13px;font-weight:600}
+.card-sub{font-size:11px;color:var(--t3);margin-top:1px}
+.g4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px}
+.g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:14px}
+.metric{background:#F8FAFC;border-radius:8px;padding:13px;border:1px solid var(--border)}
+.m-label{font-size:10px;color:var(--t3);font-weight:500;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.m-value{font-size:20px;font-weight:600;line-height:1;margin-bottom:4px;font-family:'Courier New',monospace}
+.m-trend{font-size:10px;display:inline-flex;align-items:center;padding:2px 6px;border-radius:7px;font-weight:500}
+.up{background:var(--green-l);color:var(--green)}.dn{background:var(--red-l);color:var(--red)}
+.neu{background:#F1F5F9;color:#64748B}.am{background:var(--amber-l);color:var(--amber)}
+.pill{display:inline-flex;align-items:center;font-size:10px;font-weight:500;padding:2px 7px;border-radius:8px}
+.pg{background:var(--green-l);color:var(--green)}.pa{background:var(--amber-l);color:var(--amber)}
+.pr{background:var(--red-l);color:var(--red)}.pb{background:var(--blue-l);color:var(--blue)}.pgy{background:#F1F5F9;color:#64748B}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{text-align:left;font-size:10px;color:var(--t3);font-weight:500;padding:0 10px 8px;text-transform:uppercase;letter-spacing:.04em}
+.tbl td{padding:9px 10px;border-top:1px solid #F1F5F9;font-size:12px;vertical-align:middle}
+.tbl tr:hover td{background:var(--bg)}
+.mono{font-family:'Courier New',monospace}
+.f-label{display:block;font-size:11px;font-weight:500;color:var(--t2);margin-bottom:4px}
+.f-input{width:100%;height:33px;padding:0 9px;border:1px solid var(--border);border-radius:var(--rs);font-size:12px;color:var(--dark);background:var(--surf);font-family:inherit;outline:none;transition:border-color .15s}
+.f-input:focus{border-color:var(--blue)}
+.f-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.f-group{margin-bottom:10px}
+.btn{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 13px;border-radius:var(--rs);font-size:12px;font-weight:500;font-family:inherit;cursor:pointer;border:none;transition:all .15s}
+.btn-p{background:var(--blue);color:#fff}.btn-p:hover{background:#1D4ED8}
+.btn-g{background:none;border:1px solid var(--border);color:var(--t2)}.btn-g:hover{background:var(--bg)}
+.btn-sm{height:28px;padding:0 10px;font-size:11px}
+.bar-track{height:5px;border-radius:3px;background:var(--border);overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .4s}
+.fuel-tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.fuel-tab{padding:6px 13px;border-radius:var(--rs);border:1px solid var(--border);background:var(--surf);font-size:12px;font-weight:500;cursor:pointer;color:var(--t2);transition:all .15s;display:flex;align-items:center;gap:6px}
+.fdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.alert{display:flex;gap:10px;padding:11px 13px;border-radius:var(--rs);margin-bottom:9px;border:1px solid}
+.alert i{font-size:15px;flex-shrink:0;margin-top:1px}
+.a-e{background:var(--red-l);border-color:#FECACA;color:#7F1D1D}
+.a-w{background:var(--amber-l);border-color:#FCD34D;color:#78350F}
+.a-o{background:var(--green-l);border-color:#BBF7D0;color:#14532D}
+.chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 140px)}
+.chat-msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding-bottom:8px}
+.msg{display:flex;gap:8px;max-width:88%}
+.msg.user{flex-direction:row-reverse;align-self:flex-end}
+.msg-bubble{padding:9px 13px;border-radius:10px;font-size:12px;line-height:1.6;white-space:pre-wrap;color:var(--dark)}
+.msg.ai .msg-bubble{background:var(--surf);border:1px solid var(--border);border-radius:3px 10px 10px 10px}
+.msg.user .msg-bubble{background:var(--blue);color:#fff;border-radius:10px 3px 10px 10px}
+.msg-av{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0}
+.av-ai{background:#EDE9FE;color:#6D28D9}.av-u{background:var(--blue);color:#fff}
+.chat-row{display:flex;gap:7px;padding-top:10px;border-top:1px solid var(--border)}
+.chat-in{flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:16px;font-size:12px;font-family:inherit;outline:none;color:var(--dark)}
+.chat-in:focus{border-color:var(--blue)}
+.chat-send{width:32px;height:32px;border-radius:50%;background:var(--blue);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0}
+.typing span{width:5px;height:5px;background:var(--t3);border-radius:50%;animation:bnc 1.2s infinite;display:inline-block;margin:0 2px}
+.typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
+@keyframes bnc{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}
+.tank-grid{display:flex;justify-content:space-around;padding:10px 20px 16px}
+.tank-item{display:flex;flex-direction:column;align-items:center}
+.map-ph{background:#F1F5F9;border-radius:var(--r);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;border:2px dashed var(--border);text-align:center}
+#toast{position:fixed;bottom:20px;right:20px;background:var(--dark);color:#fff;padding:9px 15px;border-radius:8px;font-size:12px;z-index:9999;display:none;pointer-events:none}
+.loading{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:12px}
+.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
 
-alter table precios_diarios enable row level security;
+<div id="loading" class="loading">
+  <div class="spinner"></div>
+  <div style="font-size:13px;color:var(--t3)">Cargando GasPanel...</div>
+</div>
 
-create policy "Usuarios pueden insertar precios"
-on precios_diarios for insert
-to authenticated
-with check (true);
+<div id="auth" class="auth-screen" style="display:none">
+  <div class="auth-bg"></div>
+  <div style="width:100%;max-width:420px;padding:20px">
+    <div class="auth-card">
+      <div class="brand">
+        <div class="brand-icon"><svg viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg></div>
+        <div class="brand-name">Gas<span>Panel</span></div>
+      </div>
+      <div class="auth-tabs">
+        <button class="auth-tab on" id="tab-in" onclick="showTab('in')">Iniciar sesión</button>
+        <button class="auth-tab" id="tab-reg" onclick="showTab('reg')">Registrarse</button>
+      </div>
+      <div id="auth-err" class="auth-msg auth-err"></div>
+      <div id="auth-ok" class="auth-msg auth-ok"></div>
 
-create policy "Usuarios pueden leer precios"
-on precios_diarios for select
-to authenticated
-using (true);
+      <div id="form-in" class="auth-form">
+        <div class="auth-field"><label>Correo electrónico</label><input type="email" id="in-email" placeholder="tu@empresa.com"/></div>
+        <div class="auth-field"><label>Contraseña</label><input type="password" id="in-pass" placeholder="••••••••"/></div>
+        <button class="auth-btn" id="in-btn" onclick="doLogin()"><i class="ti ti-login" style="font-size:15px"></i> Entrar a GasPanel</button>
+        <div class="auth-divider">o</div>
+        <button class="auth-demo" onclick="doDemo()"><i class="ti ti-eye" style="font-size:13px;margin-right:5px"></i> Ver demo sin registrarse</button>
+      </div>
 
-create policy "Usuarios pueden actualizar precios"
-on precios_diarios for update
-to authenticated
-using (true);
+      <div id="form-reg" class="auth-form" style="display:none">
+        <div class="auth-field"><label>Nombre completo</label><input type="text" id="reg-name" placeholder="Álvaro García"/></div>
+        <div class="auth-field"><label>Empresa / Red de estaciones</label><input type="text" id="reg-company" placeholder="Inversiones Arellano S.L."/></div>
+        <div class="auth-field"><label>Correo electrónico</label><input type="email" id="reg-email" placeholder="tu@empresa.com"/></div>
+        <div class="auth-field"><label>Contraseña</label><input type="password" id="reg-pass" placeholder="Mínimo 8 caracteres"/></div>
+        <button class="auth-btn" id="reg-btn" onclick="doRegister()"><i class="ti ti-user-plus" style="font-size:15px"></i> Crear cuenta gratis</button>
+      </div>
+
+      <div class="auth-feats">
+        <div class="auth-feat"><i class="ti ti-chart-line"></i> Márgenes en tiempo real</div>
+        <div class="auth-feat"><i class="ti ti-droplet"></i> Control de cisternas</div>
+        <div class="auth-feat"><i class="ti ti-robot"></i> Asistente IA</div>
+        <div class="auth-feat"><i class="ti ti-radar"></i> Radar de competencia</div>
+      </div>
+    </div>
+    <div class="auth-tag">GasPanel · Software de gestión para estaciones de servicio<br/>Datos seguros · Acceso desde cualquier dispositivo</div>
+  </div>
+</div>
+
+<div id="app" class="app" style="display:none">
+  <aside class="sb">
+    <div class="sb-hd">
+      <div class="sb-icon"><svg viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg></div>
+      <div><div style="font-size:13px;font-weight:700;color:#F1F5F9">GasPanel</div><div style="font-size:10px;color:rgba(255,255,255,.35)" id="sb-co">...</div></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-sec">Principal</div>
+      <button class="nav-btn active" data-page="dashboard"><i class="ti ti-layout-dashboard"></i> Dashboard</button>
+      <button class="nav-btn" data-page="margenes"><i class="ti ti-chart-line"></i> Márgenes</button>
+      <button class="nav-btn" data-page="precios"><i class="ti ti-tag"></i> Precios del día</button>
+      <button class="nav-btn" data-page="cisternas"><i class="ti ti-droplet"></i> Cisternas</button>
+      <button class="nav-btn" data-page="prevision"><i class="ti ti-calendar-stats"></i> Previsión</button>
+      <button class="nav-btn" data-page="empleados"><i class="ti ti-users"></i> Empleados</button>
+      <button class="nav-btn" data-page="cierre"><i class="ti ti-clipboard-check"></i> Cierre de caja</button>
+      <button class="nav-btn" data-page="radar"><i class="ti ti-radar"></i> Competencia</button>
+      <button class="nav-btn" data-page="informes"><i class="ti ti-file-description"></i> Informes</button>
+      <button class="nav-btn" data-page="alertas"><i class="ti ti-bell"></i> Alertas <span class="nav-badge">3</span></button>
+      <div class="nav-sec" style="margin-top:8px">IA</div>
+      <button class="nav-btn" data-page="asistente"><i class="ti ti-robot"></i> Asistente IA <span class="nav-ai">Pro</span></button>
+    </nav>
+    <div class="sb-foot">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:28px;height:28px;background:var(--blue);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff" id="sb-av">?</div>
+        <div><div style="font-size:12px;font-weight:600;color:#F1F5F9" id="sb-name">...</div><div style="font-size:10px;color:rgba(255,255,255,.35)">Administrador</div></div>
+      </div>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="pg-title" id="pg-title">Dashboard</div>
+      <div class="tb-right">
+        <div class="st-sel">
+          <i class="ti ti-map-pin" style="color:#64748B;font-size:13px"></i>
+          <select id="st-sel">
+            <option value="Valdefuentes" selected>Valdefuentes</option>
+            <option value="Las Matas">Las Matas</option>
+            <option value="Europolis">Europolis</option>
+            <option value="Valdemoro">Valdemoro</option>
+            <option value="Monte del Pilar">Monte del Pilar</option>
+            <option value="Saltos del Sil">Saltos del Sil</option>
+            <option value="El Escorial (M.D.+M.I.)">El Escorial (M.D.+M.I.)</option>
+          </select>
+        </div>
+        <div class="db-badge"><i class="ti ti-database" style="font-size:11px"></i> Datos reales · Supabase</div>
+        <button class="logout-btn" onclick="doLogout()"><i class="ti ti-logout" style="font-size:13px"></i> Salir</button>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const {createClient}=supabase;
+const sb=createClient('https://lgtmeykjgmvpulkglooe.supabase.co','sb_publishable_y2g0BMX1air8fF0Z1Ninmg_R8nmybUb');
+
+const RD={"Europolis":{"med":{"Lun":16935.9,"Mar":16989.5,"Mié":16272.9,"Jue":17422.1,"Vie":18257.9,"Sáb":12241.8,"Dom":11381.7},"tot14":[17420.5,16782.2,17017.8,16758.0,18619.3,11113.9,9789.5,16628.5,17232.4,17114.3,17458.4,18306.2,12686.4,11806.0],"yd":11806.0,"dbd":12686.4,"lf":{"GoA":4505.8,"NEXA":387.6,"G95":6649.2,"G98":263.4}},"Monte del Pilar":{"med":{"Lun":10819.7,"Mar":11683.6,"Mié":11043.2,"Jue":11704.7,"Vie":12650.2,"Sáb":9454.2,"Dom":9503.9},"tot14":[10413.9,11223.7,10238.9,11861.2,12091.5,10190.6,9804.1,10943.4,12631.6,11651.9,11307.6,12462.3,8842.6,7878.7],"yd":7878.7,"dbd":8842.6,"lf":{"GoA":2283.2,"NEXA":302.2,"G95":4991.7,"G98":301.6}},"Saltos del Sil":{"med":{"Lun":18525.0,"Mar":17861.7,"Mié":18325.9,"Jue":18951.4,"Vie":18187.7,"Sáb":14277.7,"Dom":15342.9},"tot14":[17515.7,17552.8,17949.7,18069.4,17542.5,13189.4,14535.1,18158.6,17637.4,19844.9,20344.2,18460.0,13951.4,15979.8],"yd":15979.8,"dbd":13951.4,"lf":{"GoA":4947.4,"NEXA":1034.8,"G95":8672.4,"G98":1015.4,"AdBlue":309.8}},"Las Matas":{"med":{"Lun":19723.2,"Mar":19214.8,"Mié":19742.5,"Jue":19851.9,"Vie":20921.4,"Sáb":17424.2,"Dom":16614.7},"tot14":[19041.7,18853.4,19970.6,19869.2,21723.4,17115.0,16024.0,19141.5,19975.4,21166.1,20415.4,20845.3,17742.4,17009.1],"yd":17009.1,"dbd":17742.4,"lf":{"GoA":7330.7,"NEXA":597.4,"G95":8701.8,"G98":379.2}},"Valdefuentes":{"med":{"Lun":34338.4,"Mar":34090.8,"Mié":33864.5,"Jue":36142.0,"Vie":36579.1,"Sáb":27514.3,"Dom":29065.8},"tot14":[35158.1,32962.5,32819.9,35435.5,36503.9,26126.2,26137.8,32085.1,34668.2,34341.8,37209.9,36842.6,28405.6,27804.3],"yd":27804.3,"dbd":28405.6,"lf":{"GoA":12910.2,"NEXA":1888.1,"G95":11812.7,"G98":1028.7,"AdBlue":164.6}},"Valdemoro":{"med":{"Lun":20731.4,"Mar":20667.4,"Mié":20851.3,"Jue":21937.8,"Vie":23653.5,"Sáb":14492.9,"Dom":15904.8},"tot14":[20600.2,18945.3,20761.4,22287.4,22300.5,11881.1,13678.8,19856.6,21930.2,19994.6,20490.4,22638.2,13405.4,15285.1],"yd":15285.1,"dbd":13405.4,"lf":{"GoA":8005.2,"NEXA":1033.3,"G95":5814.0,"G98":307.3,"AdBlue":125.3}},"El Escorial (M.D.+M.I.)":{"med":{"Lun":24215.3,"Mar":25105.6,"Mié":25994.8,"Jue":27031.2,"Vie":27694.2,"Sáb":20067.7,"Dom":18697.5},"tot14":[24847.7,25618.3,25250.2,25256.5,27788.9,18285.9,18324.6,24106.4,27175.0,26961.0,28265.1,29017.6,21197.2,18854.2],"yd":18854.2,"dbd":21197.2,"lf":{"GoA":7062.9,"NEXA":1030.0,"G95":9657.2,"G98":886.3,"AdBlue":217.8}}};
+const STATIONS=['Valdefuentes','Las Matas','Europolis','Valdemoro','Monte del Pilar','Saltos del Sil','El Escorial (M.D.+M.I.)'];
+const DIAS=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+const FUELS={
+  GoA: {l:'Gasóleo A',  c:'#2563EB',pvp:1.659,pc:1.452,cap:25000,r:.55},
+  G95: {l:'Gasolina 95',c:'#16A34A',pvp:1.659,pc:1.448,cap:25000,r:.38},
+  G98: {l:'Gasolina 98',c:'#9333EA',pvp:1.829,pc:1.520,cap:15000,r:.04},
+  NEXA:{l:'NEXA Diésel',c:'#D97706',pvp:1.729,pc:1.465,cap:15000,r:.03},
+};
+const STOCK={};
+STATIONS.forEach(s=>{const b=RD[s].med['Lun']||10000;STOCK[s]={GoA:Math.round(b*.55*2.2),G95:Math.round(b*.38*2.8),G98:Math.round(b*.04*3.5),NEXA:Math.round(b*.03*2.6)};});
+
+// Historial cisternas guardadas en sesión
+const CIST_LOG=[];
+
+let curPage='dashboard',curStation='Valdefuentes',curFuel='GoA';
+let chatMsgs=[{r:'ai',t:'Hola. Soy el asistente de GasPanel. Tengo acceso a los datos reales de ventas y márgenes de los 4 combustibles. ¿En qué te ayudo?'}];
+let currentUser=null,userProfile=null;
+
+const f  =n=>Math.round(n).toLocaleString('es-ES');
+const f2 =n=>parseFloat(n).toFixed(2);
+const f3 =n=>parseFloat(n).toFixed(3);
+const f4 =n=>parseFloat(n).toFixed(4);
+const mc =m=>m>=5.5?'#16A34A':m>=3?'#D97706':'#DC2626';
+const ml =m=>m>=5.5?['Óptimo','pg']:m>=3?['Aceptable','pa']:['Crítico','pr'];
+const cM =(p,c)=>(p/1.10-c)*100;
+const todayDia=()=>['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date().getDay()];
+const getSD=()=>RD[curStation]||null;
+const yd =sd=>sd?sd.yd:0;
+const dbd=sd=>sd?sd.dbd:0;
+const medDia=(sd,d)=>sd?(sd.med[d||todayDia()]||0):0;
+const totalBenDia=sd=>{const lit=medDia(sd);return Object.entries(FUELS).reduce((s,[k,fc])=>s+(cM(fc.pvp,fc.pc)/100)*lit*fc.r,0);};
+
+function toast(msg,ok=true){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.style.background=ok?'#0F172A':'#DC2626';
+  t.style.display='block';
+  setTimeout(()=>t.style.display='none',3000);
+}
+function showErr(msg){const e=document.getElementById('auth-err');e.textContent=msg;e.style.display='block';setTimeout(()=>e.style.display='none',5000);}
+function showOk(msg){const e=document.getElementById('auth-ok');e.textContent=msg;e.style.display='block';}
+function setBtnLoading(id,v){const b=document.getElementById(id);if(b){b.disabled=v;b.style.opacity=v?.7:1;}}
+
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+function showTab(t){
+  document.getElementById('tab-in').classList.toggle('on',t==='in');
+  document.getElementById('tab-reg').classList.toggle('on',t==='reg');
+  document.getElementById('form-in').style.display=t==='in'?'flex':'none';
+  document.getElementById('form-reg').style.display=t==='reg'?'flex':'none';
+  document.getElementById('auth-err').style.display='none';
+  document.getElementById('auth-ok').style.display='none';
+}
+
+async function doLogin(){
+  const email=document.getElementById('in-email').value.trim();
+  const pass=document.getElementById('in-pass').value;
+  if(!email||!pass){showErr('Introduce email y contraseña');return;}
+  setBtnLoading('in-btn',true);
+  const {data,error}=await sb.auth.signInWithPassword({email,password:pass});
+  if(error){showErr(error.message==='Invalid login credentials'?'Email o contraseña incorrectos':error.message);setBtnLoading('in-btn',false);return;}
+  currentUser=data.user;
+  await loadProfile();
+  enterApp();
+}
+
+async function doRegister(){
+  const name=document.getElementById('reg-name').value.trim();
+  const company=document.getElementById('reg-company').value.trim();
+  const email=document.getElementById('reg-email').value.trim();
+  const pass=document.getElementById('reg-pass').value;
+  if(!name||!company||!email||!pass){showErr('Rellena todos los campos');return;}
+  if(pass.length<8){showErr('La contraseña debe tener al menos 8 caracteres');return;}
+  setBtnLoading('reg-btn',true);
+
+  // 1. Crear usuario en Supabase Auth
+  const {data,error}=await sb.auth.signUp({email,password:pass,options:{data:{full_name:name,company}}});
+  if(error){showErr(error.message);setBtnLoading('reg-btn',false);return;}
+
+  if(data.user){
+    // 2. Guardar perfil en tabla perfiles
+    const {error:perr}=await sb.from('perfiles').insert({
+      id:data.user.id,
+      nombre:name,
+      empresa:company
+    });
+    if(perr) console.warn('Error guardando perfil:',perr.message);
+
+    currentUser=data.user;
+    userProfile={nombre:name,empresa:company};
+
+    if(!data.session){
+      showOk('¡Cuenta creada! Revisa tu email para confirmar la cuenta.');
+      setBtnLoading('reg-btn',false);
+    } else {
+      enterApp();
+    }
+  }
+}
+
+function doDemo(){
+  currentUser={id:'demo',email:'demo@gaspanel.es',user_metadata:{full_name:'Demo',company:'Inversiones Arellano'}};
+  userProfile={nombre:'Demo',empresa:'Inversiones Arellano'};
+  enterApp();
+}
+
+async function loadProfile(){
+  if(!currentUser||currentUser.id==='demo') return;
+  const {data}=await sb.from('perfiles').select('*').eq('id',currentUser.id).single();
+  if(data) userProfile=data;
+  else {
+    // Intentar crear perfil desde metadata si no existe
+    const meta=currentUser.user_metadata||{};
+    if(meta.full_name){
+      const {error}=await sb.from('perfiles').insert({id:currentUser.id,nombre:meta.full_name,empresa:meta.company||''});
+      if(!error) userProfile={nombre:meta.full_name,empresa:meta.company||''};
+    }
+  }
+}
+
+function enterApp(){
+  const nombre=(userProfile?.nombre||currentUser?.user_metadata?.full_name||currentUser?.email||'Usuario').split(' ')[0];
+  const empresa=userProfile?.empresa||currentUser?.user_metadata?.company||'Mi empresa';
+  document.getElementById('sb-name').textContent=nombre;
+  document.getElementById('sb-av').textContent=nombre[0].toUpperCase();
+  document.getElementById('sb-co').textContent=empresa;
+  document.getElementById('auth').style.display='none';
+  document.getElementById('app').style.display='flex';
+  render();
+}
+
+async function doLogout(){
+  if(currentUser?.id!=='demo') await sb.auth.signOut();
+  currentUser=null; userProfile=null;
+  document.getElementById('app').style.display='none';
+  document.getElementById('auth').style.display='flex';
+  document.getElementById('in-email').value='';
+  document.getElementById('in-pass').value='';
+  document.getElementById('auth-err').style.display='none';
+  document.getElementById('auth-ok').style.display='none';
+}
+
+// ── SUPABASE OPERACIONES ──────────────────────────────────────────────────────
+async function sbGuardarCisterna(stN,fecha,combustible,litros,precio_compra){
+  if(currentUser?.id==='demo') return false; // demo no guarda
+  const {error}=await sb.from('cisternas').insert({
+    fecha,
+    combustible,
+    litros:parseFloat(litros),
+    precio_compra:parseFloat(precio_compra),
+    estado:'pendiente',
+    estacion_id:null // se conectará con estaciones reales en siguiente paso
+  });
+  if(error){console.error('Error cisternas:',error.message);return false;}
+  return true;
+}
+
+async function sbCargarCisternas(){
+  if(currentUser?.id==='demo') return [];
+  const {data,error}=await sb.from('cisternas').select('*').order('fecha',{ascending:false}).limit(20);
+  if(error) return [];
+  return data||[];
+}
+
+// ── NAVIGATION ────────────────────────────────────────────────────────────────
+document.querySelectorAll('.nav-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    curPage=btn.dataset.page;
+    const T={dashboard:'Dashboard',margenes:'Márgenes',precios:'Precios del día',precios:'Precios del día',cisternas:'Cisternas',prevision:'Previsión',empleados:'Empleados',cierre:'Cierre de caja',radar:'Competencia',informes:'Informes',alertas:'Alertas',asistente:'Asistente IA'};
+    document.getElementById('pg-title').textContent=T[curPage]||curPage;
+    render();
+  });
+});
+document.getElementById('st-sel').addEventListener('change',e=>{curStation=e.target.value;render();});
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function render(){
+  const content=document.getElementById('content');
+  const sd=getSD();
+  const ay=yd(sd),ant=dbd(sd),mdH=medDia(sd),pct=ant>0?Math.round((ay-ant)/ant*100):0;
+  switch(curPage){
+    case 'dashboard': content.innerHTML=pageDashboard(sd,ay,ant,mdH,pct); break;
+    case 'margenes':  content.innerHTML=pageMargenes(); setupFuelTabs(); break;
+    case 'precios':   renderPrecios(); break;
+    case 'cisternas': renderCisternas(); break;
+    case 'prevision': content.innerHTML=pagePrevision(sd); setupPrevision(); break;
+    case 'empleados': content.innerHTML=pageEmpleados(); break;
+    case 'cierre': content.innerHTML=pageCierre(); setupCierre(); break;
+    case 'radar':     content.innerHTML=pageRadar(); break;
+    case 'informes':  content.innerHTML=pageInformes(); break;
+    case 'alertas':   content.innerHTML=pageAlertas(); break;
+    case 'asistente': content.innerHTML=pageAsistente(); setupChat(); break;
+  }
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+function pageDashboard(sd,ay,ant,mdH,pct){
+  const m=cM(FUELS.GoA.pvp,FUELS.GoA.pc);
+  const benH=Math.round(totalBenDia(sd||RD['Valdefuentes']));
+  const hist=sd?sd.tot14:[];
+  const maxH=Math.max(...hist,1);
+  const ranking=STATIONS.map(s=>({n:s,a:RD[s].yd||0})).sort((a,b)=>b.a-a.a);
+  const fuelY=sd?sd.lf:null;
+  return `
+  <div class="g4">
+    <div class="metric"><div class="m-label">Litros ayer</div><div class="m-value">${f(ay)}</div><span class="m-trend ${pct>=0?'up':'dn'}">${pct>=0?'▲':'▼'} ${Math.abs(pct)}% vs antier</span></div>
+    <div class="metric"><div class="m-label">Media hoy (${todayDia()})</div><div class="m-value">${f(mdH)}</div><span class="m-trend neu">Histórico real</span></div>
+    <div class="metric"><div class="m-label">Margen GoA</div><div class="m-value" style="color:${mc(m)}">${f2(m)} cts</div><span class="m-trend ${ml(m)[1]}">${ml(m)[0]}</span></div>
+    <div class="metric"><div class="m-label">Benef. est. hoy</div><div class="m-value" style="color:var(--green)">${f(benH)} €</div><span class="m-trend up">4 combustibles</span></div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="card-hd"><div><div class="card-title">Litros últimos 14 días</div><div class="card-sub">${curStation}</div></div></div>
+      <div style="display:flex;align-items:flex-end;gap:3px;height:80px;margin-bottom:8px">
+        ${hist.map((v,i)=>`<div style="flex:1;display:flex;align-items:flex-end" title="${f(v)} L"><div style="width:100%;height:${Math.round((v/maxH)*100)}%;min-height:3px;background:${i===13?'var(--blue)':'#93C5FD'};border-radius:2px 2px 0 0"></div></div>`).join('')}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--t3);padding-top:8px;border-top:1px solid #F1F5F9">
+        <span>Hace 14 días</span><span style="color:var(--blue);font-weight:600">Ayer: ${f(ay)} L</span>
+      </div>
+    </div>
+    ${fuelY?`
+    <div class="card">
+      <div class="card-hd"><div class="card-title">Por combustible — ayer</div></div>
+      ${Object.entries(FUELS).filter(([k])=>(fuelY[k]||0)>0).map(([k,fc])=>`
+        <div style="margin-bottom:9px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
+            <span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:${fc.c};display:inline-block"></span>${fc.l}</span>
+            <span class="mono" style="font-weight:500">${f(fuelY[k]||0)} L · ${ay>0?Math.round(((fuelY[k]||0)/ay)*100):0}%</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:${ay>0?Math.round(((fuelY[k]||0)/ay)*100):0}%;background:${fc.c}"></div></div>
+        </div>`).join('')}
+    </div>`:`
+    <div class="card">
+      <div class="card-hd"><div class="card-title">Ranking — ayer</div></div>
+      ${ranking.map((r,i)=>`
+        <div style="margin-bottom:9px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
+            <span style="color:${i===0?'var(--blue)':'var(--t2)'};font-weight:${i===0?600:400}">${i+1}. ${r.n}</span>
+            <span class="mono" style="font-weight:500">${f(r.a)} L</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:${Math.round((r.a/ranking[0].a)*100)}%;background:${i===0?'var(--blue)':'#93C5FD'}"></div></div>
+        </div>`).join('')}
+    </div>`}
+  </div>
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Estado de la red</div><button class="btn btn-g btn-sm" onclick="toast('Exportando...')"><i class="ti ti-download" style="font-size:12px"></i> Exportar</button></div>
+    <table class="tbl">
+      <thead><tr><th>Estación</th><th>Ayer</th><th>Media ${todayDia()}</th><th>Diferencia</th><th>Benef. hoy est.</th><th>Trend 14d</th></tr></thead>
+      <tbody>${STATIONS.map(s=>{
+        const sd2=RD[s];const a2=sd2.yd||0;const m2=medDia(sd2);
+        const dif=a2-m2;const p2=m2>0?Math.round((dif/m2)*100):0;
+        const h14=sd2.tot14||[];const mx=Math.max(...h14,1);
+        const ben=Math.round(totalBenDia(sd2));
+        return`<tr><td style="font-weight:500">${s}</td><td class="mono">${f(a2)}</td><td class="mono" style="color:var(--t3)">${f(m2)}</td><td><span class="mono" style="color:${dif>=0?'var(--green)':'var(--red)'};font-weight:600">${dif>=0?'+':''}${f(dif)} (${p2>=0?'+':''}${p2}%)</span></td><td class="mono" style="color:var(--green);font-weight:500">${f(ben)} €</td><td><div style="display:flex;align-items:flex-end;gap:1px;height:22px;width:70px">${h14.map(v=>`<div style="flex:1;background:${v>=m2?'#93C5FD':'#FCA5A5'};border-radius:1px;height:${Math.round((v/mx)*100)}%;min-height:2px"></div>`).join('')}</div></td></tr>`;
+      }).join('')}</tbody>
+    </table>
+  </div>`;
+}
+
+// ── MÁRGENES ──────────────────────────────────────────────────────────────────
+function pageMargenes(){
+  return `
+  <div class="fuel-tabs" id="fuel-tabs">
+    ${Object.entries(FUELS).map(([k,fc])=>`
+    <button class="fuel-tab${k===curFuel?' active-tab':''}" data-fuel="${k}"
+      style="${k===curFuel?'background:'+fc.c+';color:#fff;border-color:transparent':''}">
+      <span class="fdot" style="background:${fc.c}"></span>${fc.l}
+    </button>`).join('')}
+  </div>
+  <div id="fuel-content"></div>`;
+}
+function setupFuelTabs(){
+  document.querySelectorAll('.fuel-tab').forEach(tab=>{
+    tab.addEventListener('click',()=>{
+      curFuel=tab.dataset.fuel;
+      document.querySelectorAll('.fuel-tab').forEach(t=>{
+        const fk=t.dataset.fuel;const on=fk===curFuel;
+        t.style.background=on?FUELS[fk].c:'';t.style.color=on?'#fff':'';t.style.borderColor=on?'transparent':'';
+      });
+      renderFuelContent();
+    });
+  });
+  renderFuelContent();
+}
+function renderFuelContent(){
+  const fc=FUELS[curFuel];const sd2=RD[curStation]||RD['Valdefuentes'];const litD=medDia(sd2)*fc.r;
+  document.getElementById('fuel-content').innerHTML=`
+  <div class="g2">
+    <div class="card">
+      <div class="card-hd"><div><div class="card-title" style="color:${fc.c}">${fc.l} — Calculadora</div></div><span class="pill" style="background:${fc.c}22;color:${fc.c}">${curFuel}</span></div>
+      <div class="f-row" style="margin-bottom:12px">
+        <div class="f-group" style="margin-bottom:0"><label class="f-label">PVP (€/L con IVA)</label><input id="f-pvp" class="f-input mono" type="number" step="0.001" value="${fc.pvp}"/></div>
+        <div class="f-group" style="margin-bottom:0"><label class="f-label">Precio compra Repsol (€/L)</label><input id="f-pc" class="f-input mono" type="number" step="0.001" value="${fc.pc}"/></div>
+      </div>
+      <div id="f-result" style="background:#F8FAFC;border-radius:8px;padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px"></div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px"><span style="color:var(--t3)">Nivel</span><span id="f-lvl" style="font-weight:600"></span></div>
+        <div class="bar-track" style="height:9px;border-radius:5px"><div class="bar-fill" id="f-bar" style="border-radius:5px"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--t3);margin-top:3px"><span style="color:var(--red)">Crítico</span><span>3.0</span><span>5.5</span><span>8.0 cts</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-hd"><div class="card-title">Los 4 combustibles</div></div>
+      ${Object.entries(FUELS).map(([k2,fc2])=>{
+        const m2=cM(fc2.pvp,fc2.pc);const litD2=medDia(sd2)*fc2.r;const on=k2===curFuel;
+        return`<div data-fuel="${k2}" class="frc" style="border:${on?'1.5px solid '+fc2.c:'1px solid var(--border)'};border-radius:8px;padding:10px;margin-bottom:8px;cursor:pointer;background:${on?fc2.c+'11':''}">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="font-size:12px;font-weight:${on?700:500};color:${fc2.c};display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:${fc2.c};display:inline-block"></span>${fc2.l}</span>
+            <span class="mono" style="font-size:14px;font-weight:700;color:${mc(m2)}">${f2(m2)} cts</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--t2)">
+            <span>PVP <strong class="mono">${f3(fc2.pvp)}</strong> · Compra <strong class="mono">${f3(fc2.pc)}</strong></span>
+            <span class="mono" style="color:var(--green)">${f(Math.round((m2/100)*litD2))} €/día</span>
+          </div>
+        </div>`;}).join('')}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-hd"><div><div class="card-title">Histórico 7 días — ${fc.l}</div><div class="card-sub">${curStation}</div></div><button class="btn btn-g btn-sm" onclick="toast('CSV descargado')"><i class="ti ti-download" style="font-size:12px"></i> CSV</button></div>
+    <table class="tbl">
+      <thead><tr><th>Fecha</th><th>PVP</th><th>P.compra</th><th>PVP s/IVA</th><th>Margen</th><th>Litros ref.</th><th>Beneficio</th><th>Estado</th></tr></thead>
+      <tbody>${[[fc.pvp-.01,fc.pc+.004,Math.round(litD*.95)],[fc.pvp-.01,fc.pc,Math.round(litD*.78)],[fc.pvp,fc.pc,Math.round(litD*1.05)],[fc.pvp,fc.pc+.003,Math.round(litD*1.02)],[fc.pvp+.01,fc.pc+.003,Math.round(litD*.75)],[fc.pvp+.01,fc.pc-.002,Math.round(litD*1.27)],[fc.pvp,fc.pc-.002,Math.round(litD*1.11)]].map(([p,c,l],i)=>{
+        const mg=cM(p,c);const[lt,lc]=ml(mg);
+        return`<tr><td style="font-weight:500">${['17 jun','18 jun','19 jun','20 jun','21 jun','22 jun','23 jun'][i]}</td><td class="mono">${f3(p)}</td><td class="mono">${f3(c)}</td><td class="mono">${(p/1.10).toFixed(3)}</td><td><span class="mono" style="font-weight:600;color:${mc(mg)}">${f2(mg)} cts</span></td><td class="mono">${f(l)}</td><td class="mono" style="font-weight:500">${f(Math.round((mg/100)*l))} €</td><td><span class="pill ${lc}">${lt}</span></td></tr>`;
+      }).join('')}</tbody>
+    </table>
+  </div>`;
+  const updF=()=>{
+    const p=parseFloat(document.getElementById('f-pvp').value)||0;
+    const c=parseFloat(document.getElementById('f-pc').value)||0;
+    FUELS[curFuel].pvp=p;FUELS[curFuel].pc=c;
+    const m=cM(p,c);
+    const r=document.getElementById('f-result');const lvl=document.getElementById('f-lvl');const bar=document.getElementById('f-bar');
+    if(r)r.innerHTML=`<div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">PVP sin IVA</div><div class="mono" style="font-size:17px;font-weight:600">${f4(p/1.10)} €</div></div><div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Margen/litro</div><div class="mono" style="font-size:26px;font-weight:700;color:${mc(m)}">${f2(m)} cts</div></div><div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Benef. est. hoy</div><div class="mono" style="font-size:17px;font-weight:600;color:var(--green)">${f(Math.round((m/100)*litD))} €</div></div><div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Benef. est. mes</div><div class="mono" style="font-size:17px;font-weight:600;color:var(--green)">${f(Math.round((m/100)*litD*30))} €</div></div>`;
+    if(lvl){lvl.textContent=f2(m)+' cts/L';lvl.style.color=mc(m);}
+    if(bar){bar.style.width=Math.min(100,(m/8)*100)+'%';bar.style.background=mc(m);}
+  };
+  document.getElementById('f-pvp').addEventListener('input',updF);
+  document.getElementById('f-pc').addEventListener('input',updF);
+  updF();
+  document.querySelectorAll('.frc').forEach(card=>{card.addEventListener('click',()=>{curFuel=card.dataset.fuel;setupFuelTabs();});});
+}
+
+// ── CISTERNAS ─────────────────────────────────────────────────────────────────
+function tankSVG(k,stN){
+  const fc=FUELS[k];const lit=STOCK[stN][k]||0;
+  const pct=Math.round((lit/fc.cap)*100);
+  const fillH=Math.round((pct/100)*110);
+  const col=pct>50?fc.c:pct>25?'#D97706':'#DC2626';
+  const consumoDia=medDia(RD[stN])*fc.r;
+  const dias=consumoDia>0?Math.round(lit/consumoDia):99;
+  const diasCol=dias<3?'var(--red)':dias<7?'var(--amber)':'var(--green)';
+  return`<div class="tank-item">
+    <svg width="64" height="128" viewBox="0 0 64 128">
+      <rect x="2" y="2" width="60" height="124" rx="7" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.5"/>
+      <clipPath id="tc_${k}"><rect x="3" y="3" width="58" height="122" rx="5"/></clipPath>
+      <rect x="3" y="${127-fillH}" width="58" height="${fillH}" fill="${col}" opacity=".85" clip-path="url(#tc_${k})"/>
+      <line x1="3" y1="${127-55}" x2="61" y2="${127-55}" stroke="rgba(255,255,255,.4)" stroke-width="1" stroke-dasharray="3,2"/>
+      <line x1="3" y1="${127-28}" x2="61" y2="${127-28}" stroke="rgba(255,255,255,.25)" stroke-width="1" stroke-dasharray="3,2"/>
+      <text x="32" y="${Math.max(72,130-fillH/2+5)}" text-anchor="middle" font-family="monospace" font-size="13" font-weight="700" fill="${pct>20?'#fff':'#475569'}">${pct}%</text>
+      <text x="32" y="${Math.max(86,130-fillH/2+19)}" text-anchor="middle" font-size="8" fill="${pct>25?'rgba(255,255,255,.75)':'#94A3B8'}">${(lit/1000).toFixed(1)}k L</text>
+    </svg>
+    <div style="font-size:10px;font-weight:600;color:${fc.c};margin-top:6px;text-align:center">${fc.l}</div>
+    <div style="font-size:9px;color:var(--t3);font-family:monospace;text-align:center">${f(fc.cap)} L cap.</div>
+    <div style="font-size:10px;font-weight:600;text-align:center;margin-top:2px;color:${diasCol}">~${Math.max(1,dias)} días</div>
+    <div style="font-size:9px;color:var(--t3);text-align:center">${f(Math.round(consumoDia))} L/día</div>
+  </div>`;
+}
+
+async function renderCisternas(){
+  const content=document.getElementById('content');
+  const stN=curStation;const sd=getSD();
+
+  // Cargar último cierre de Supabase para obtener existencias reales
+  let st=STOCK[stN]; // fallback a estimación
+  let ultimoCierre=null;
+  let ultimaFecha=null;
+
+  if(currentUser?.id!=='demo'){
+    const {data:cierreReal}=await sb.from('cierres_caja')
+      .select('*')
+      .eq('estacion',stN)
+      .order('fecha',{ascending:false})
+      .limit(1)
+      .single();
+
+    if(cierreReal){
+      ultimoCierre=cierreReal;
+      ultimaFecha=new Date(cierreReal.fecha+'T12:00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'});
+      // Usar existencias finales del cierre como stock actual
+      st={
+        GoA:  cierreReal.goa_fin||STOCK[stN].GoA,
+        G95:  cierreReal.g95_fin||STOCK[stN].G95,
+        G98:  cierreReal.g98_fin||STOCK[stN].G98,
+        NEXA: cierreReal.nexa_fin||STOCK[stN].NEXA,
+      };
+      // Actualizar también el STOCK global para que previsión y cierre lo usen
+      STOCK[stN]=st;
+    }
+  }
+
+  // Cargar cisternas guardadas en Supabase
+  const cistSaved=await sbCargarCisternas();
+
+  content.innerHTML=`
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-hd"><div><div class="card-title">Nivel de tanques</div><div class="card-sub" id="tank-sub">${stN} · cargando datos reales...</div></div></div>
+    <div class="tank-grid">${Object.keys(FUELS).map(k=>tankSVG(k,stN)).join('')}</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding-top:14px;border-top:1px solid #F1F5F9">
+      ${Object.entries(FUELS).map(([k,fc])=>{
+        const lit=st[k]||0;const pct=Math.round((lit/fc.cap)*100);const alerta=pct<25;
+        const consumoDia=medDia(sd)*fc.r;const dias=consumoDia>0?Math.round(lit/consumoDia):99;
+        return`<div style="background:${alerta?'var(--red-l)':fc.c+'11'};border-radius:8px;padding:11px;border:1px solid ${alerta?'#FECACA':fc.c+'33'}">
+          <div style="font-size:10px;font-weight:600;color:${fc.c};margin-bottom:4px">${fc.l}</div>
+          <div class="mono" style="font-size:15px;font-weight:700;color:${pct<25?'var(--red)':pct<50?'var(--amber)':'var(--dark)'}">${f(lit)} L</div>
+          <div style="font-size:10px;color:var(--t3);margin:3px 0">${pct}% · ${f(Math.round(consumoDia))} L/día</div>
+          <div class="bar-track" style="height:5px;margin-bottom:4px"><div class="bar-fill" style="width:${pct}%;background:${pct<25?'var(--red)':pct<50?'var(--amber)':fc.c}"></div></div>
+          <div style="font-size:10px;font-weight:600;color:${dias<3?'var(--red)':dias<7?'var(--amber)':'var(--green)'}">${dias<3?'⚠ ':dias<7?'⚡ ':'✓ '}~${Math.max(1,dias)} días</div>
+          ${alerta?`<div style="font-size:10px;color:var(--red);font-weight:600;margin-top:2px">Cisterna urgente</div>`:''}
+        </div>`;}).join('')}
+    </div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="card-hd"><div class="card-title">Registrar entrada de cisterna</div></div>
+      <div class="f-group"><label class="f-label">Estación</label>
+        <select id="c-st" class="f-input" style="cursor:pointer">${STATIONS.map(s=>`<option${s===stN?' selected':''}>${s}</option>`).join('')}</select>
+      </div>
+      <div class="f-group"><label class="f-label">Fecha de entrega</label><input id="c-fecha" class="f-input" type="date" value="${new Date().toISOString().split('T')[0]}"/></div>
+      <div class="f-row">
+        <div class="f-group"><label class="f-label">Combustible</label>
+          <select id="c-fuel" class="f-input" style="cursor:pointer">${Object.entries(FUELS).map(([k,fc])=>`<option value="${k}">${fc.l}</option>`).join('')}</select>
+        </div>
+        <div class="f-group"><label class="f-label">Litros</label><input id="c-lit" class="f-input mono" type="number" placeholder="15000"/></div>
+      </div>
+      <div class="f-group"><label class="f-label">Precio compra (€/L)</label><input id="c-pc" class="f-input mono" type="number" step="0.001" placeholder="${FUELS.GoA.pc}"/></div>
+      <div id="c-info" style="display:none;background:var(--blue-l);border-radius:7px;padding:10px;font-size:11px;color:#1E3A8A;margin-bottom:10px"></div>
+      <button class="btn btn-p" style="width:100%" id="c-guardar"><i class="ti ti-plus" style="font-size:12px"></i> Registrar entrada</button>
+    </div>
+    <div class="card">
+      <div class="card-hd"><div><div class="card-title">Cisternas registradas</div><div class="card-sub">${cistSaved.length>0?cistSaved.length+' entradas en Supabase':'Sin datos aún'}</div></div></div>
+      <table class="tbl">
+        <thead><tr><th>Fecha</th><th>Combustible</th><th>Litros</th><th>€/L</th><th>Margen</th><th>Estado</th></tr></thead>
+        <tbody>
+          ${cistSaved.length>0 ? cistSaved.map(c=>{
+            const fc=Object.entries(FUELS).find(([k])=>k===c.combustible)?.[1];
+            const color=fc?.c||'#64748B';const label=fc?.l||c.combustible;
+            const pvp=fc?.pvp||1.659;const m=cM(pvp,c.precio_compra);
+            return`<tr>
+              <td style="font-weight:500">${new Date(c.fecha).toLocaleDateString('es-ES',{day:'numeric',month:'short'})}</td>
+              <td><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;color:${color}"><span style="width:6px;height:6px;border-radius:50%;background:${color};display:inline-block"></span>${label}</span></td>
+              <td class="mono">${f(c.litros)}</td>
+              <td class="mono">${parseFloat(c.precio_compra).toFixed(3)}</td>
+              <td><span class="mono" style="font-weight:600;color:${mc(m)}">${f2(m)} cts</span></td>
+              <td><span class="pill ${c.estado==='pendiente'?'pa':c.estado==='programada'?'pgy':'pg'}">${c.estado}</span></td>
+            </tr>`;
+          }).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--t3);padding:20px">
+            <i class="ti ti-database" style="font-size:20px;display:block;margin-bottom:6px"></i>
+            Aún no hay cisternas registradas.<br/>Usa el formulario para añadir la primera.
+          </td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+
+  // Actualizar subtítulo con fuente de datos
+  const tankSub=document.getElementById('tank-sub');
+  if(tankSub){
+    if(ultimaFecha){
+      tankSub.textContent=`${stN} · datos reales del cierre del ${ultimaFecha}`;
+      tankSub.style.color='var(--green)';
+    } else {
+      tankSub.textContent=`${stN} · estimación (sin cierres en Supabase aún)`;
+      tankSub.style.color='var(--amber)';
+    }
+  }
+
+  // Eventos
+  document.getElementById('c-guardar')?.addEventListener('click',async()=>{
+    const k=document.getElementById('c-fuel')?.value||'GoA';
+    const l=parseFloat(document.getElementById('c-lit')?.value)||0;
+    const c=parseFloat(document.getElementById('c-pc')?.value)||0;
+    const fecha=document.getElementById('c-fecha')?.value||new Date().toISOString().split('T')[0];
+    const stName=document.getElementById('c-st')?.value||curStation;
+    if(!l||!c){toast('Introduce litros y precio de compra',false);return;}
+    // Actualizar stock local
+    if(STOCK[stName]){STOCK[stName][k]=(STOCK[stName][k]||0)+l;}
+    // Guardar en Supabase
+    const btn=document.getElementById('c-guardar');
+    btn.disabled=true;btn.textContent='Guardando...';
+    const ok=await sbGuardarCisterna(stName,fecha,k,l,c);
+    if(ok){
+      toast('✓ Cisterna registrada y guardada en Supabase');
+    } else if(currentUser?.id==='demo'){
+      toast('Cisterna registrada (modo demo — no se guarda)');
+    } else {
+      toast('Cisterna registrada localmente (error al guardar en BD)',false);
+    }
+    await renderCisternas(); // recargar con datos nuevos
+  });
+
+  const updCI=()=>{
+    const l=parseFloat(document.getElementById('c-lit')?.value)||0;
+    const c=parseFloat(document.getElementById('c-pc')?.value)||0;
+    const k=document.getElementById('c-fuel')?.value||'GoA';
+    const info=document.getElementById('c-info');
+    if(info&&l&&c){info.style.display='block';info.innerHTML=`Coste: <strong>${f(Math.round(l*c))} €</strong> · Margen result.: <strong style="color:${mc(cM(FUELS[k]?.pvp||1.659,c))}">${f2(cM(FUELS[k]?.pvp||1.659,c))} cts</strong>`;}
+    else if(info) info.style.display='none';
+  };
+  document.getElementById('c-lit')?.addEventListener('input',updCI);
+  document.getElementById('c-pc')?.addEventListener('input',updCI);
+}
+
+// ── PREVISIÓN ─────────────────────────────────────────────────────────────────
+function pagePrevision(sd){
+  const stN=curStation;
+  const manana=DIAS[(DIAS.indexOf(todayDia())+1)%7];
+  const medManana=medDia(sd,manana);
+  const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
+  const fechaManana=tomorrow.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
+  return`
+  <div class="card" style="margin-bottom:14px;border:1px solid var(--blue-m);background:#FAFCFF">
+    <div class="card-hd"><div><div class="card-title" style="color:var(--blue)"><i class="ti ti-calendar-event" style="font-size:13px;margin-right:5px"></i>Previsión para mañana — ${fechaManana} (${manana})</div><div class="card-sub">Introduce los precios del día para calcular margen y stock resultante</div></div></div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px">
+      ${Object.entries(FUELS).map(([k,fc])=>{
+        const consumo=Math.round(medManana*fc.r);
+        return`<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+            <span style="width:10px;height:10px;border-radius:50%;background:${fc.c};display:inline-block"></span>
+            <span style="font-size:12px;font-weight:600;color:${fc.c}">${fc.l}</span>
+          </div>
+          <div class="f-group"><label class="f-label">PVP mañana (€/L)</label><input id="prev-pvp-${k}" class="f-input mono" type="number" step="0.001" value="${fc.pvp}"/></div>
+          <div class="f-group" style="margin-bottom:10px"><label class="f-label">P. compra mañana (€/L)</label><input id="prev-pc-${k}" class="f-input mono" type="number" step="0.001" value="${fc.pc}"/></div>
+          <div id="prev-res-${k}" style="background:#F8FAFC;border-radius:6px;padding:9px;font-size:11px"></div>
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid #F1F5F9;font-size:10px;color:var(--t3)">Consumo previsto: <strong class="mono" style="color:var(--dark)">${f(consumo)} L</strong></div>
+          <div style="font-size:10px;color:var(--t3)">Stock tras mañana: <strong class="mono" id="prev-stock-${k}" style="color:var(--dark)">—</strong></div>
+        </div>`;}).join('')}
+    </div>
+    <div id="prev-summary" style="background:var(--green-l);border-radius:8px;padding:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px"></div>
+  </div>
+  <div class="card">
+    <div class="card-hd"><div><div class="card-title">Medias históricas por día</div><div class="card-sub">${stN}</div></div></div>
+    ${DIAS.map(d=>{
+      const v=medDia(sd,d);const maxV=Math.max(...DIAS.map(d2=>medDia(sd,d2)),1);
+      const isMañana=d===manana;const isHoy=d===todayDia();
+      return`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:11px;width:32px;font-weight:${isMañana||isHoy?600:400};color:${isMañana?'var(--blue)':isHoy?'var(--green)':'var(--t2)'}">${d}${isMañana?' ◀':isHoy?' (hoy)':''}</span>
+        <div class="bar-track" style="flex:1;height:7px"><div class="bar-fill" style="width:${Math.round((v/maxV)*100)}%;background:${isMañana?'var(--blue)':isHoy?'var(--green)':'#93C5FD'}"></div></div>
+        <span class="mono" style="font-size:11px;font-weight:500;width:62px;text-align:right">${f(v)} L</span>
+      </div>`;}).join('')}
+  </div>`;
+}
+function setupPrevision(){
+  const sd2=getSD();
+  const manana=DIAS[(DIAS.indexOf(todayDia())+1)%7];
+  const medManana=medDia(sd2,manana);
+  const updPrev=()=>{
+    let totalBen=0,totalLit=0;
+    Object.keys(FUELS).forEach(k=>{
+      const fc=FUELS[k];
+      const p=parseFloat(document.getElementById(`prev-pvp-${k}`)?.value)||0;
+      const c=parseFloat(document.getElementById(`prev-pc-${k}`)?.value)||0;
+      const m=cM(p,c);const consumo=Math.round(medManana*fc.r);
+      const benDia=Math.round((m/100)*consumo);
+      const stockActual=STOCK[curStation]?.[k]||0;const stockTras=stockActual-consumo;
+      const res=document.getElementById(`prev-res-${k}`);const stockEl=document.getElementById(`prev-stock-${k}`);
+      if(res)res.innerHTML=`<div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="color:var(--t3)">Margen</span><strong style="color:${mc(m)}">${f2(m)} cts</strong></div><div style="display:flex;justify-content:space-between"><span style="color:var(--t3)">Beneficio est.</span><strong style="color:var(--green)">${f(benDia)} €</strong></div>`;
+      if(stockEl){stockEl.textContent=f(Math.max(0,stockTras))+' L';stockEl.style.color=stockTras<0?'var(--red)':stockTras<FUELS[k].cap*.2?'var(--amber)':'var(--green)';}
+      totalBen+=benDia;totalLit+=consumo;
+    });
+    const sumEl=document.getElementById('prev-summary');
+    if(sumEl)sumEl.innerHTML=`
+      <div style="text-align:center"><div style="font-size:10px;color:#166534;margin-bottom:3px">Beneficio total mañana</div><div class="mono" style="font-size:20px;font-weight:700;color:var(--green)">${f(totalBen)} €</div></div>
+      <div style="text-align:center"><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Litros previstos</div><div class="mono" style="font-size:20px;font-weight:700">${f(totalLit)} L</div></div>
+      <div style="text-align:center"><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Día</div><div style="font-size:16px;font-weight:700">${manana}</div></div>
+      <div style="text-align:center"><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Estación</div><div style="font-size:13px;font-weight:600">${curStation.split(' ')[0]}</div></div>`;
+  };
+  Object.keys(FUELS).forEach(k=>{
+    document.getElementById(`prev-pvp-${k}`)?.addEventListener('input',updPrev);
+    document.getElementById(`prev-pc-${k}`)?.addEventListener('input',updPrev);
+  });
+  updPrev();
+}
+
+// ── EMPLEADOS ─────────────────────────────────────────────────────────────────
+function pageEmpleados(){
+  const emps=[
+    {i:'MG',n:'Manuel García', r:'Encargado',t:'Mañana',c:'Indefinido',d:'Mar 2019',e:'activo',   s:'Valdefuentes'},
+    {i:'LR',n:'Laura Romero',  r:'Operaria', t:'Tarde', c:'Indefinido',d:'Jun 2021',e:'activo',   s:'Valdefuentes'},
+    {i:'JM',n:'José Martínez', r:'Operario', t:'Noche', c:'Indefinido',d:'Sep 2018',e:'baja',     s:'Valdefuentes',b:'IT desde 20 jun',su:'Ana Vidal'},
+    {i:'AV',n:'Ana Vidal',     r:'Sustituta',t:'Noche', c:'Temporal',  d:'Jun 2024',e:'activo',   s:'Valdefuentes'},
+    {i:'CP',n:'Carlos Peña',   r:'Operario', t:'Mañana',c:'Indefinido',d:'Ene 2020',e:'activo',   s:'Las Matas'},
+    {i:'SR',n:'Sofía Ramos',   r:'Encargada',t:'Mañana',c:'Indefinido',d:'Abr 2018',e:'activo',   s:'Las Matas'},
+    {i:'DL',n:'Diego López',   r:'Operario', t:'Tarde', c:'Temporal',  d:'Mar 2024',e:'vacaciones',s:'Europolis',b:'Vacaciones 20–30 jun',su:'Pendiente'},
+  ];
+  const bajas=emps.filter(e=>e.e==='baja'||e.e==='vacaciones');
+  const TC={M:'#BFDBFE',T:'#BBF7D0',N:'#FEF08A',L:'#F1F5F9',B:'#FEE2E2'};
+  const TL={M:'#1E3A8A',T:'#14532D',N:'#713F12',L:'#94A3B8',B:'#7F1D1D'};
+  const cuad=[['Manuel García',['M','M','M','M','M','L','L']],['Laura Romero',['T','T','T','T','T','T','L']],['José Martínez',['B','B','B','B','B','B','B']],['Ana Vidal',['N','N','N','N','N','N','N']],['Carlos Peña',['M','L','M','M','M','M','L']]];
+  return`
+  <div class="g4">
+    <div class="metric"><div class="m-label">Activos</div><div class="m-value">${emps.filter(e=>e.e==='activo').length}</div><span class="m-trend up">En turno</span></div>
+    <div class="metric"><div class="m-label">Bajas IT</div><div class="m-value" style="color:var(--red)">${emps.filter(e=>e.e==='baja').length}</div><span class="m-trend dn">Con sustitución</span></div>
+    <div class="metric"><div class="m-label">Vacaciones</div><div class="m-value" style="color:var(--amber)">${emps.filter(e=>e.e==='vacaciones').length}</div><span class="m-trend am">Sin cubrir</span></div>
+    <div class="metric"><div class="m-label">Total plantilla</div><div class="m-value">${emps.length}</div><span class="m-trend neu">Red Arellano</span></div>
+  </div>
+  ${bajas.length?`<div class="card" style="border:1px solid #FECACA;background:#FFF5F5;margin-bottom:14px">
+    <div class="card-hd"><div class="card-title" style="color:var(--red)"><i class="ti ti-alert-triangle" style="font-size:13px;margin-right:4px"></i>Bajas y sustituciones</div></div>
+    ${bajas.map(e=>`<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:8px"><div style="width:30px;height:30px;border-radius:50%;background:#FEE2E2;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--red)">${e.i}</div><div><div style="font-weight:600">${e.n}</div><div style="font-size:11px;color:var(--t2)">${e.r} · ${e.s} · ${e.t}</div></div></div>
+        <span class="pill ${e.e==='baja'?'pr':'pa'}">${e.e==='baja'?'Baja IT':'Vacaciones'}</span>
+      </div>
+      <div style="background:var(--bg);border-radius:6px;padding:9px;font-size:11px">
+        <div style="margin-bottom:5px"><i class="ti ti-calendar-x" style="color:var(--red);margin-right:4px"></i><strong>Motivo:</strong> ${e.b}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><i class="ti ti-user-check" style="color:${e.su==='Pendiente'?'var(--amber)':'var(--green)'};margin-right:4px"></i><strong>Sustitución:</strong> <span style="color:${e.su==='Pendiente'?'var(--amber)':'var(--green)'}">${e.su}</span></div>
+          ${e.su==='Pendiente'?`<button class="btn btn-p btn-sm" onclick="toast('Próximamente...')"><i class="ti ti-plus" style="font-size:11px"></i> Asignar</button>`:`<span class="pill pg">Cubierta ✓</span>`}
+        </div>
+      </div>
+    </div>`).join('')}
+  </div>`:''}
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-hd"><div class="card-title">Plantilla</div><button class="btn btn-p btn-sm" onclick="toast('Próximamente...')"><i class="ti ti-plus" style="font-size:11px"></i> Añadir</button></div>
+    <table class="tbl">
+      <thead><tr><th>Empleado</th><th>Estación</th><th>Rol</th><th>Turno</th><th>Contrato</th><th>Desde</th><th>Estado</th></tr></thead>
+      <tbody>${emps.map(e=>`<tr>
+        <td><div style="display:flex;align-items:center;gap:7px"><div style="width:26px;height:26px;border-radius:50%;background:#EFF6FF;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--blue)">${e.i}</div><span style="font-weight:500">${e.n}</span></div></td>
+        <td style="color:var(--t2);font-size:11px">${e.s}</td><td style="color:var(--t2)">${e.r}</td><td>${e.t}</td>
+        <td><span class="pill ${e.c==='Indefinido'?'pb':'pa'}">${e.c}</span></td>
+        <td style="color:var(--t3);font-size:11px">${e.d}</td>
+        <td>${e.e==='activo'?'<span class="pill pg">Activo</span>':e.e==='baja'?'<span class="pill pr">Baja IT</span>':'<span class="pill pa">Vacaciones</span>'}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+  </div>
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Cuadrante semanal</div><div style="display:flex;gap:8px;font-size:10px;color:var(--t2)">${[['M','Mañana','#BFDBFE'],['T','Tarde','#BBF7D0'],['N','Noche','#FEF08A'],['L','Libre','#F1F5F9'],['B','Baja','#FEE2E2']].map(([k,v,c])=>`<span style="display:flex;align-items:center;gap:3px"><span style="width:9px;height:9px;border-radius:2px;background:${c};display:inline-block"></span>${v}</span>`).join('')}</div></div>
+    <div style="overflow-x:auto"><table class="tbl" style="min-width:480px">
+      <thead><tr><th style="width:160px">Empleado</th>${DIAS.map(d=>`<th style="text-align:center">${d}</th>`).join('')}</tr></thead>
+      <tbody>${cuad.map(([n,dias])=>`<tr><td style="font-weight:500;font-size:11px">${n}</td>${dias.map(d=>`<td style="text-align:center;padding:6px 3px"><span style="display:inline-block;width:24px;height:22px;line-height:22px;border-radius:4px;background:${TC[d]};font-size:11px;font-weight:600;color:${TL[d]}">${d}</span></td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>
+  </div>`;
+}
+
+// ── RADAR ─────────────────────────────────────────────────────────────────────
+function pageRadar(){
+  return`
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-hd"><div><div class="card-title">Radar de competencia — Madrid</div><div class="card-sub">Próximamente: mapa interactivo con precios en tiempo real</div></div></div>
+    <div class="map-ph">
+      <i class="ti ti-map-2" style="font-size:48px;color:var(--t3);margin-bottom:12px"></i>
+      <div style="font-size:15px;font-weight:600;color:var(--t2);margin-bottom:8px">Mapa en desarrollo</div>
+      <div style="font-size:13px;color:var(--t3);max-width:400px;line-height:1.7">Mapa de Madrid con precios en tiempo real de gasolineras cercanas vía API del Ministerio de Energía.</div>
+      <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+        ${[['ti-map-pin','Geolocalización'],['ti-trending-up','Precios live'],['ti-bulb','PVP óptimo'],['ti-bell','Alertas de precio']].map(([ic,t])=>`<div style="display:flex;align-items:center;gap:6px;background:#F8FAFC;border:1px solid var(--border);border-radius:7px;padding:8px 12px;font-size:12px;color:var(--t2)"><i class="ti ${ic}" style="color:var(--blue);font-size:14px"></i>${t}</div>`).join('')}
+      </div>
+    </div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="card-hd"><div class="card-title">Precios referencia manual</div><div class="card-sub">Radio ~5km · ${curStation}</div></div>
+      <div style="background:var(--blue-l);border-radius:8px;padding:11px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+        <div><div style="font-size:10px;color:#1E3A8A;margin-bottom:2px">Tu precio GoA</div><div class="mono" style="font-size:22px;font-weight:700;color:var(--blue)">${f3(FUELS.GoA.pvp)} €</div></div>
+        <span style="font-size:11px;color:#3B82F6">Gasóleo A</span>
+      </div>
+      ${[['BP Las Rozas',1.669,'1.2km',0.010],['Repsol Majadahonda',1.655,'2.1km',-0.004],['Cepsa Pozuelo',1.672,'3.4km',0.013],['Shell Boadilla',1.648,'4.0km',-0.011],['Galp Las Matas',1.661,'4.8km',0.002]].map(([n,p,d,diff])=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid #F1F5F9">
+        <div><div style="font-size:12px;font-weight:500">${n}</div><div style="font-size:10px;color:var(--t3)">${d}</div></div>
+        <div style="text-align:right"><div class="mono" style="font-weight:600;font-size:13px">${f3(p)} €</div><div style="font-size:10px;color:${diff>0?'var(--green)':'var(--red)'};font-weight:500">${diff>0?'+':''}${(diff*100).toFixed(1)} cts vs tú</div></div>
+      </div>`).join('')}
+    </div>
+    <div class="card">
+      <div class="card-hd"><div class="card-title">Márgenes — 4 combustibles</div></div>
+      ${Object.entries(FUELS).map(([k,fc])=>{const m=cM(fc.pvp,fc.pc);const litD=medDia(RD[curStation])*fc.r;return`
+      <div style="border:1px solid var(--border);border-radius:8px;padding:11px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+          <span style="font-size:12px;font-weight:600;color:${fc.c};display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:${fc.c};display:inline-block"></span>${fc.l}</span>
+          <span class="mono" style="font-size:14px;font-weight:700;color:${mc(m)}">${f2(m)} cts</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--t2)">
+          <span>PVP <strong class="mono">${f3(fc.pvp)}</strong> · Compra <strong class="mono">${f3(fc.pc)}</strong></span>
+          <span class="mono" style="color:var(--green)">${f(Math.round((m/100)*litD))} €/día</span>
+        </div>
+      </div>`;}).join('')}
+    </div>
+  </div>`;
+}
+
+// ── INFORMES ──────────────────────────────────────────────────────────────────
+function pageInformes(){
+  const benMes=Math.round(DIAS.reduce((t,d)=>{const lit=medDia(RD[curStation],d);return t+Object.entries(FUELS).reduce((s,[k,fc])=>s+(cM(fc.pvp,fc.pc)/100)*lit*fc.r,0);},0)*4.3);
+  return`
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-hd"><div><div class="card-title">Generar informe mensual</div><div class="card-sub">Para gestoría o uso interno</div></div>
+      <div style="display:flex;gap:8px">
+        <select class="f-input" style="width:auto;height:32px"><option>Junio 2026</option><option>Mayo 2026</option><option>Abril 2026</option></select>
+        <button class="btn btn-p btn-sm" onclick="toast('PDF generado ✓')"><i class="ti ti-file-download" style="font-size:12px"></i> PDF</button>
+        <button class="btn btn-g btn-sm" onclick="toast('Enviado a gestoría ✓')"><i class="ti ti-mail" style="font-size:12px"></i> Gestoría</button>
+      </div>
+    </div>
+    <div class="g3" style="margin-bottom:0">
+      ${[['ti-chart-line','Márgenes','4 combustibles · evolución diaria','#EFF6FF','var(--blue)'],['ti-droplet','Cisternas','Entregas, costes y precios','var(--green-l)','var(--green)'],['ti-users','Empleados','Horas, turnos y bajas','var(--amber-l)','var(--amber)']].map(([ic,t,d,bg,c])=>`
+      <div style="background:${bg};border-radius:8px;padding:12px;display:flex;gap:9px"><i class="ti ${ic}" style="font-size:18px;color:${c};flex-shrink:0;margin-top:1px"></i><div><div style="font-weight:500;font-size:12px;margin-bottom:2px">${t}</div><div style="font-size:11px;color:var(--t2)">${d}</div></div></div>`).join('')}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-hd"><div class="card-title">Vista previa — Junio 2026</div></div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:16px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:14px;padding-bottom:14px;border-bottom:2px solid var(--dark)">
+        <div><div style="font-size:16px;font-weight:700">GasPanel · Informe Mensual</div><div style="font-size:12px;color:var(--t3)">Inversiones Arellano · Junio 2026 · 7 estaciones</div></div>
+        <div style="text-align:right;font-size:11px;color:var(--t3)"><div>${new Date().toLocaleDateString('es-ES')}</div><div>4 combustibles · Red Madrid</div></div>
+      </div>
+      <div class="g4" style="margin-bottom:14px">
+        ${[[f(benMes)+' €','Benef. est. mes','var(--green)'],[f(Math.round(DIAS.reduce((t,d)=>t+medDia(RD[curStation],d),0)*4.3))+' L','Litros est. mes','var(--dark)'],['4','Combustibles','var(--dark)'],[f(STATIONS.length),'Estaciones','var(--dark)']].map(([v,l,c])=>`
+        <div style="text-align:center;padding:10px;background:#F8FAFC;border-radius:7px"><div style="font-size:10px;color:var(--t3);margin-bottom:4px">${l}</div><div class="mono" style="font-size:18px;font-weight:700;color:${c}">${v}</div></div>`).join('')}
+      </div>
+      <table class="tbl">
+        <thead><tr><th>Estación</th><th>L/día media</th><th>GoA</th><th>G95</th><th>G98</th><th>NEXA</th><th>Benef. mes</th></tr></thead>
+        <tbody>${STATIONS.map(s=>{const md=medDia(RD[s]);const lf=RD[s].lf||{};const b=Math.round(Object.entries(FUELS).reduce((sum,[k,fc])=>sum+(cM(fc.pvp,fc.pc)/100)*md*fc.r,0)*30);return`<tr><td style="font-weight:500">${s}</td><td class="mono">${f(md)}</td><td class="mono">${f(lf.GoA||0)}</td><td class="mono">${f(lf.G95||0)}</td><td class="mono">${f(lf.G98||0)}</td><td class="mono">${f(lf.NEXA||0)}</td><td class="mono" style="color:var(--green);font-weight:500">${f(b)} €</td></tr>`;}).join('')}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+// ── ALERTAS ───────────────────────────────────────────────────────────────────
+function pageAlertas(){
+  return`
+  <div class="g4">
+    <div class="metric"><div class="m-label">Críticas</div><div class="m-value" style="color:var(--red)">2</div><span class="m-trend dn">Acción hoy</span></div>
+    <div class="metric"><div class="m-label">Advertencias</div><div class="m-value" style="color:var(--amber)">2</div><span class="m-trend am">Esta semana</span></div>
+    <div class="metric"><div class="m-label">Positivas</div><div class="m-value" style="color:var(--green)">1</div><span class="m-trend up">Buenas noticias</span></div>
+    <div class="metric"><div class="m-label">Total</div><div class="m-value">5</div><span class="m-trend neu">Sin revisar</span></div>
+  </div>
+  ${[['a-e','ti-droplet','Las Matas — Stock GoA crítico','Con ventas actuales se agota en ~3 días.','Ir a cisternas'],['a-e','ti-chart-line','Europolis — Margen próximo al límite','Cerca del umbral crítico de 3 cts.','Ver márgenes'],['a-w','ti-user-off','Europolis — Sustitución pendiente','Diego López en vacaciones. Sin sustituto.','Ir a empleados'],['a-w','ti-spy','Shell Boadilla bajó a 1.648 € GoA','Por debajo de tu PVP.','Ver competencia'],['a-o','ti-check','Valdefuentes lideró la red ayer',f(RD['Valdefuentes'].yd||0)+' L. Por encima de su media.','Ver dashboard']].map((a,i)=>`
+  <div class="alert ${a[0]}" id="alrt-${i}">
+    <i class="ti ${a[1]}"></i>
+    <div style="flex:1"><div style="font-size:12px;font-weight:600;margin-bottom:3px">${a[2]}</div><div style="font-size:11px;opacity:.85">${a[3]}</div>
+      <button class="btn btn-g btn-sm" style="margin-top:7px" onclick="toast('Abriendo...')">${a[4]}</button>
+    </div>
+    <button onclick="document.getElementById('alrt-${i}').remove()" style="background:none;border:none;cursor:pointer;opacity:.4;padding:2px;align-self:flex-start"><i class="ti ti-x" style="font-size:13px"></i></button>
+  </div>`).join('')}`;
+}
+
+// ── ASISTENTE ─────────────────────────────────────────────────────────────────
+function pageAsistente(){
+  return`
+  <div class="chat-wrap">
+    <div style="background:#F8FAFC;border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--t2)">
+        <div style="width:7px;height:7px;border-radius:50%;background:var(--green)"></div>
+        Conectado · <strong style="margin-left:2px">${curStation}</strong> · Claude Sonnet
+      </div>
+      <div style="font-size:10px;color:var(--t3)">4 combustibles · datos reales</div>
+    </div>
+    <div class="chat-msgs" id="chat-msgs"></div>
+    <div>
+      <div style="display:flex;gap:5px;margin-bottom:9px;flex-wrap:wrap">
+        ${['¿Qué estación vendió más ayer?','¿Cuál es el mejor margen?','¿Cuándo pido cisterna GoA?','Resumen de la semana'].map(q=>`<button onclick="sendQ('${q}')" style="font-size:10px;padding:3px 9px;border-radius:12px;border:1px solid var(--border);background:#fff;cursor:pointer;color:var(--t2)">${q}</button>`).join('')}
+      </div>
+      <div class="chat-row">
+        <input class="chat-in" id="chat-in" placeholder="Pregunta sobre ventas, márgenes, cisternas..."/>
+        <button class="chat-send" id="chat-send"><i class="ti ti-send" style="font-size:14px"></i></button>
+      </div>
+    </div>
+  </div>`;
+}
+function setupChat(){
+  renderChatMsgs();
+  document.getElementById('chat-in')?.addEventListener('keydown',e=>{if(e.key==='Enter')doSend();});
+  document.getElementById('chat-send')?.addEventListener('click',doSend);
+}
+function renderChatMsgs(){
+  const el=document.getElementById('chat-msgs');if(!el)return;
+  el.innerHTML=chatMsgs.map(m=>`
+  <div class="msg ${m.r==='user'?'user':'ai'}">
+    ${m.r==='ai'?`<div class="msg-av av-ai"><i class="ti ti-robot" style="font-size:12px"></i></div>`:''}
+    <div class="msg-bubble">${m.t}</div>
+    ${m.r==='user'?`<div class="msg-av av-u">${userProfile?.nombre?.[0]||currentUser?.email?.[0]||'A'}</div>`:''}
+  </div>`).join('');
+  el.scrollTop=el.scrollHeight;
+}
+async function sendQ(q){document.getElementById('chat-in').value=q;await doSend();}
+async function doSend(){
+  const inp=document.getElementById('chat-in');
+  const q=(inp?.value||'').trim();if(!q)return;if(inp)inp.value='';
+  const sd2=getSD()||RD['Valdefuentes'];
+  chatMsgs=[...chatMsgs,{r:'user',t:q},{r:'ai',t:'...'}];renderChatMsgs();
+  const sys=`Eres el asistente operativo de GasPanel para la red Inversiones Arellano (7 estaciones en Madrid).
+Datos reales:
+- Estación activa: ${curStation}
+- Litros ayer: ${f(yd(sd2))} L | Media hoy (${todayDia()}): ${f(medDia(sd2))} L
+- Márgenes: ${Object.entries(FUELS).map(([k,fc])=>`${fc.l}: ${f2(cM(fc.pvp,fc.pc))} cts (PVP ${f3(fc.pvp)}€, compra ${f3(fc.pc)}€)`).join(' | ')}
+- Ranking ayer: ${STATIONS.map(s=>s.split(' ')[0]+':'+f(RD[s].yd||0)+'L').join(', ')}
+- Medias históricas ${curStation}: ${DIAS.map(d=>d+':'+f(medDia(sd2,d))+'L').join(', ')}
+- Stock tanques ${curStation}: ${Object.entries(FUELS).map(([k,fc])=>fc.l+':'+f(STOCK[curStation]?.[k]||0)+'L').join(', ')}
+Responde en español, directo, máximo 4 líneas, sin markdown, con datos concretos.`;
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:400,system:sys,messages:chatMsgs.filter(m=>m.t!=='...').map(m=>({role:m.r==='ai'?'assistant':'user',content:m.t}))})});
+    const data=await res.json();
+    chatMsgs[chatMsgs.length-1].t=data.content?.[0]?.text||'Error al obtener respuesta.';
+  }catch(e){chatMsgs[chatMsgs.length-1].t='Error de conexión. Comprueba tu internet.';}
+  renderChatMsgs();
+}
+
+
+
+// ── CIERRE DE CAJA ────────────────────────────────────────────────────────────
+function pageCierre(){
+  const stN=curStation;
+  const sd=getSD();
+  // Cierre es del día anterior
+  const ayer=new Date();ayer.setDate(ayer.getDate()-1);
+  const hoy=ayer.toISOString().split('T')[0];
+  const hoyLabel2=ayer.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
+  const hoyLabel=hoyLabel2;
+  const medHoy=medDia(sd);
+
+  return`
+  <div class="card" style="margin-bottom:14px;border:1px solid var(--blue-m);background:#FAFCFF">
+    <div class="card-hd">
+      <div>
+        <div class="card-title" style="color:var(--blue)">
+          <i class="ti ti-clipboard-check" style="font-size:13px;margin-right:5px"></i>Cierre de caja — ${hoyLabel}
+        </div>
+        <div class="card-sub">${stN} · rellena los datos del día y el sistema comprueba si cuadra</div>
+      </div>
+      <input type="date" id="cc-fecha" class="f-input" style="width:160px" value="${hoy}"/>
+    </div>
+
+    <!-- SUBIR EXCEL -->
+    <div style="background:var(--blue-l);border:1.5px dashed #93C5FD;border-radius:8px;padding:14px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+      <i class="ti ti-file-spreadsheet" style="font-size:28px;color:var(--blue);flex-shrink:0"></i>
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:600;color:var(--blue);margin-bottom:3px">Importar desde Excel</div>
+        <div style="font-size:11px;color:#3B82F6">Sube el Excel del día y se rellenan los campos automáticamente</div>
+      </div>
+      <label style="cursor:pointer">
+        <input type="file" id="excel-upload" accept=".xlsx,.xls" style="display:none" onchange="leerExcel(this)"/>
+        <div class="btn btn-p" style="pointer-events:none"><i class="ti ti-upload" style="font-size:13px"></i> Subir Excel</div>
+      </label>
+      <div id="excel-status" style="font-size:11px;color:var(--green);display:none;font-weight:500;min-width:180px"></div>
+    </div>
+
+    <!-- FÓRMULA VISUAL -->
+    <div style="background:#F8FAFC;border-radius:8px;padding:12px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;flex-wrap:wrap">
+      <span style="background:var(--blue-l);color:var(--blue);padding:4px 10px;border-radius:6px;font-weight:600">Exist. iniciales</span>
+      <span style="color:var(--t3);font-size:16px">+</span>
+      <span style="background:var(--green-l);color:var(--green);padding:4px 10px;border-radius:6px;font-weight:600">Cisternas</span>
+      <span style="color:var(--t3);font-size:16px">−</span>
+      <span style="background:var(--amber-l);color:var(--amber);padding:4px 10px;border-radius:6px;font-weight:600">Ventas</span>
+      <span style="color:var(--t3);font-size:16px">=</span>
+      <span style="background:var(--purple-l,#FAF5FF);color:#9333EA;padding:4px 10px;border-radius:6px;font-weight:600">Exist. finales</span>
+      <span style="color:var(--t3);font-size:16px">→</span>
+      <span id="cc-cuadre-badge" style="padding:4px 10px;border-radius:6px;font-weight:600;background:#F1F5F9;color:#64748B">Pendiente</span>
+    </div>
+
+    <!-- TABLA POR COMBUSTIBLE -->
+    <div style="overflow-x:auto;margin-bottom:16px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--t3);font-weight:500;text-transform:uppercase;letter-spacing:.04em">Combustible</th>
+            <th style="text-align:right;padding:8px 10px;font-size:10px;color:var(--blue);font-weight:600;text-transform:uppercase">Exist. iniciales (L)</th>
+            <th style="text-align:right;padding:8px 10px;font-size:10px;color:var(--green);font-weight:600;text-transform:uppercase">Cisternas (L)</th>
+            <th style="text-align:right;padding:8px 10px;font-size:10px;color:var(--amber);font-weight:600;text-transform:uppercase">Ventas (L)</th>
+            <th style="text-align:right;padding:8px 10px;font-size:10px;color:#9333EA;font-weight:600;text-transform:uppercase">Exist. finales (L)</th>
+            <th style="text-align:right;padding:8px 10px;font-size:10px;color:var(--t3);font-weight:500;text-transform:uppercase">PVP €/L</th>
+            <th style="text-align:right;padding:8px 10px;font-size:10px;color:var(--t3);font-weight:500;text-transform:uppercase">Diferencia</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${Object.entries(FUELS).map(([k,fc])=>`
+          <tr style="border-bottom:1px solid #F1F5F9">
+            <td style="padding:10px;font-weight:600">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="width:10px;height:10px;border-radius:50%;background:${fc.c};display:inline-block;flex-shrink:0"></span>
+                ${fc.l}
+              </div>
+            </td>
+            <td style="padding:6px 10px">
+              <input id="cc-ini-${k}" class="f-input mono" type="number" step="1"
+                style="text-align:right;border-color:var(--blue-m);background:var(--blue-l)"
+                placeholder="${f(STOCK[curStation]?.[k]||0)}"
+                oninput="updCuadre()"/>
+            </td>
+            <td style="padding:6px 10px">
+              <input id="cc-cis-${k}" class="f-input mono" type="number" step="1"
+                style="text-align:right;border-color:#BBF7D0;background:var(--green-l)"
+                placeholder="0"
+                oninput="updCuadre()"/>
+            </td>
+            <td style="padding:6px 10px">
+              <input id="cc-ven-${k}" class="f-input mono" type="number" step="1"
+                style="text-align:right;border-color:#FCD34D;background:var(--amber-l)"
+                placeholder="${f(Math.round(medDia(sd)*fc.r))}"
+                oninput="updCuadre()"/>
+            </td>
+            <td style="padding:6px 10px">
+              <input id="cc-fin-${k}" class="f-input mono" type="number" step="1"
+                style="text-align:right;border-color:#DDD6FE;background:#FAF5FF"
+                placeholder="—"
+                oninput="updCuadre()"/>
+            </td>
+            <td style="padding:6px 10px">
+              <input id="cc-pvp-${k}" class="f-input mono" type="number" step="0.001"
+                style="text-align:right"
+                value="${fc.pvp}"/>
+            </td>
+            <td style="padding:6px 10px;text-align:right">
+              <span id="cc-dif-${k}" style="font-family:monospace;font-weight:600;font-size:13px;color:var(--t3)">—</span>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- RESUMEN -->
+    <div id="cc-resumen" style="display:none;background:var(--green-l);border-radius:8px;padding:14px;margin-bottom:14px"></div>
+
+    <!-- OBSERVACIONES + GUARDAR -->
+    <div class="g2" style="margin-bottom:0">
+      <div>
+        <label class="f-label">Observaciones del día</label>
+        <textarea id="cc-obs" style="width:100%;height:72px;padding:8px;border:1px solid var(--border);border-radius:var(--rs);font-size:12px;font-family:inherit;outline:none;resize:none;color:var(--dark)" placeholder="Incidencias, averías, diferencias, novedades..."></textarea>
+      </div>
+      <div style="display:flex;flex-direction:column;justify-content:flex-end;gap:8px">
+        <div style="background:#F8FAFC;border-radius:8px;padding:10px;font-size:11px;color:var(--t2)">
+          <i class="ti ti-info-circle" style="color:var(--blue);margin-right:5px"></i>
+          Media histórica hoy (${todayDia()}): <strong class="mono">${f(medHoy)} L</strong> totales
+        </div>
+        <button class="btn btn-p" style="width:100%;height:40px;font-size:13px" id="cc-guardar">
+          <i class="ti ti-device-floppy" style="font-size:14px"></i> Guardar cierre del día
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cc-historial" class="card">
+    <div class="card-hd"><div class="card-title">Historial de cierres</div><div class="card-sub">${stN} · cargando...</div></div>
+    <div style="text-align:center;padding:20px;color:var(--t3)">
+      <div class="spinner" style="margin:0 auto 8px;width:24px;height:24px;border-width:2px"></div>Cargando...
+    </div>
+  </div>`;
+}
+
+
+// ── LEER EXCEL ────────────────────────────────────────────────────────────────
+async function leerExcel(input){
+  const file=input.files[0];
+  if(!file) return;
+  const status=document.getElementById('excel-status');
+  if(status){status.style.display='block';status.textContent='Leyendo Excel...';status.style.color='var(--t2)';}
+
+  const reader=new FileReader();
+  reader.onload=async function(e){
+    try{
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data,{type:'array'});
+
+      // Buscar hoja: primero TOTAL, luego Hoja1, luego la primera
+      const hojaTotal=wb.SheetNames.find(n=>n.toUpperCase().includes('TOTAL'));
+      const hojaHoja1=wb.SheetNames.find(n=>n.toLowerCase().includes('hoja1')||n==='Hoja1');
+      const hojaNombre=hojaTotal||hojaHoja1||wb.SheetNames[0];
+      const ws=wb.Sheets[hojaNombre];
+
+      // Leer fecha del Excel (celda G2)
+      let fechaStr='';
+      const fechaCelda=ws['G2'];
+      if(fechaCelda&&fechaCelda.v){
+        // Fecha Excel es número de días desde 1900
+        const fechaExcel=new Date(Math.round((fechaCelda.v-25569)*86400*1000));
+        fechaStr=fechaExcel.toISOString().split('T')[0];
+        const fechaInput=document.getElementById('cc-fecha');
+        if(fechaInput) fechaInput.value=fechaStr;
+      }
+
+      // Mapa fijo de filas por combustible
+      // Fila 12=G98, 13=G95, 14=GoA(Diesel E+), 15=NEXA, 16=AdBlue
+      // Col B=ventas, Col D=existencias finales del Excel, Col F=cisternas
+      const filaMap={G98:12, G95:13, GoA:14, NEXA:15};
+
+      const getCelda=(fila,colLetra)=>{
+        const celda=ws[colLetra+fila];
+        return celda?Math.round(parseFloat(celda.v)||0):0;
+      };
+
+      // Leer ventas, existencias finales y cisternas del Excel
+      const datosExcel={};
+      Object.entries(filaMap).forEach(([fuel,fila])=>{
+        datosExcel[fuel]={
+          ventas:    getCelda(fila,'B'),
+          finExcel:  getCelda(fila,'D'), // existencias según Excel (post-ventas, post-cisternas)
+          cisternas: getCelda(fila,'F'),
+        };
+      });
+
+      // Buscar cierre de AYER en Supabase para obtener existencias iniciales
+      if(status) status.textContent='Buscando existencias del día anterior...';
+
+      const ayer=new Date();ayer.setDate(ayer.getDate()-1);
+      const ayerStr=ayer.toISOString().split('T')[0];
+      // Si el Excel tiene fecha, usamos el día anterior a esa fecha
+      const fechaBuscar=fechaStr?new Date(fechaStr+'T12:00:00'):ayer;
+      fechaBuscar.setDate(fechaBuscar.getDate()-1);
+      const fechaBuscarStr=fechaBuscar.toISOString().split('T')[0];
+
+      let existIniciales={GoA:0,G95:0,G98:0,NEXA:0};
+      let cierreAyerEncontrado=false;
+
+      if(currentUser?.id!=='demo'){
+        const {data:cierreAyer}=await sb.from('cierres_caja')
+          .select('goa_fin,g95_fin,g98_fin,nexa_fin')
+          .eq('estacion',curStation)
+          .eq('fecha',fechaBuscarStr)
+          .single();
+
+        if(cierreAyer){
+          existIniciales={
+            GoA:  cierreAyer.goa_fin||0,
+            G95:  cierreAyer.g95_fin||0,
+            G98:  cierreAyer.g98_fin||0,
+            NEXA: cierreAyer.nexa_fin||0,
+          };
+          cierreAyerEncontrado=true;
+        }
+      }
+
+      // Rellenar formulario
+      Object.keys(filaMap).forEach(fuel=>{
+        const d=datosExcel[fuel];
+        const ini=existIniciales[fuel];
+
+        // Existencias iniciales: del cierre de ayer (o vacío si no hay)
+        const iniEl=document.getElementById(`cc-ini-${fuel}`);
+        if(iniEl){
+          if(ini>0) iniEl.value=ini;
+          else iniEl.value=''; // encargado las mete a mano la primera vez
+        }
+
+        // Cisternas del Excel
+        const cisEl=document.getElementById(`cc-cis-${fuel}`);
+        if(cisEl&&d.cisternas>0) cisEl.value=d.cisternas;
+
+        // Ventas del Excel
+        const venEl=document.getElementById(`cc-ven-${fuel}`);
+        if(venEl&&d.ventas>0) venEl.value=d.ventas;
+
+        // Existencias finales: iniciales + cisternas - ventas
+        // Si tenemos iniciales, las calculamos. Si no, usamos las del Excel
+        const finEl=document.getElementById(`cc-fin-${fuel}`);
+        if(finEl){
+          if(ini>0){
+            const finCalc=ini+d.cisternas-d.ventas;
+            finEl.value=Math.max(0,finCalc);
+          } else {
+            // Sin cierre anterior, usamos las existencias del Excel directamente
+            if(d.finExcel>0) finEl.value=d.finExcel;
+          }
+        }
+      });
+
+      updCuadre();
+
+      if(status){
+        status.style.display='block';
+        if(cierreAyerEncontrado){
+          status.textContent='✓ Excel importado · existencias iniciales de Supabase';
+          status.style.color='var(--green)';
+        } else {
+          status.textContent='✓ Excel importado · introduce existencias iniciales manualmente';
+          status.style.color='var(--amber)';
+        }
+      }
+
+    }catch(err){
+      console.error('Error leyendo Excel:',err);
+      if(status){
+        status.textContent='Error al leer el Excel: '+err.message;
+        status.style.color='var(--red)';
+      }
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function setupCierre(){
+  await cargarHistorialCierres();
+  updCuadre();
+
+  document.getElementById('cc-guardar')?.addEventListener('click', async()=>{
+    // El cierre es siempre del día anterior
+    const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
+    const fechaDefault=yesterday.toISOString().split('T')[0];
+    const fecha=document.getElementById('cc-fecha')?.value||fechaDefault;
+    const obs=document.getElementById('cc-obs')?.value||'';
+
+    // Recoger valores del formulario
+    const vals={};
+    let totalVentas=0;
+    let cuadreOk=true;
+
+    Object.keys(FUELS).forEach(k=>{
+      vals[k]={
+        ini: parseFloat(document.getElementById(`cc-ini-${k}`)?.value)||0,
+        cis: parseFloat(document.getElementById(`cc-cis-${k}`)?.value)||0,
+        ven: parseFloat(document.getElementById(`cc-ven-${k}`)?.value)||0,
+        fin: parseFloat(document.getElementById(`cc-fin-${k}`)?.value)||0,
+        pvp: parseFloat(document.getElementById(`cc-pvp-${k}`)?.value)||FUELS[k].pvp,
+      };
+      totalVentas+=vals[k].ven;
+      if(vals[k].ini>0&&vals[k].fin>0){
+        const calculado=vals[k].ini+vals[k].cis-vals[k].ven;
+        if(Math.abs(calculado-vals[k].fin)>50) cuadreOk=false;
+      }
+    });
+
+    // Construir objeto con nombres exactos de columnas de Supabase
+    const data={
+      estacion: curStation,
+      fecha,
+      observaciones: obs,
+      usuario_id: currentUser?.id==='demo'?null:currentUser?.id,
+      // Litros vendidos (columnas existentes)
+      goa_litros:  vals.GoA.ven,
+      g95_litros:  vals.G95.ven,
+      g98_litros:  vals.G98.ven,
+      nexa_litros: vals.NEXA.ven,
+      adblue_litros: 0,
+      // PVP
+      goa_pvp:  vals.GoA.pvp,
+      g95_pvp:  vals.G95.pvp,
+      g98_pvp:  vals.G98.pvp,
+      nexa_pvp: vals.NEXA.pvp,
+      // Precio compra
+      goa_pc:  FUELS.GoA.pc,
+      g95_pc:  FUELS.G95.pc,
+      g98_pc:  FUELS.G98.pc,
+      nexa_pc: FUELS.NEXA.pc,
+      // Existencias iniciales
+      goa_ini:  vals.GoA.ini,
+      g95_ini:  vals.G95.ini,
+      g98_ini:  vals.G98.ini,
+      nexa_ini: vals.NEXA.ini,
+      // Cisternas
+      goa_cis:  vals.GoA.cis,
+      g95_cis:  vals.G95.cis,
+      g98_cis:  vals.G98.cis,
+      nexa_cis: vals.NEXA.cis,
+      // Existencias finales
+      goa_fin:  vals.GoA.fin,
+      g95_fin:  vals.G95.fin,
+      g98_fin:  vals.G98.fin,
+      nexa_fin: vals.NEXA.fin,
+    };
+
+    if(totalVentas===0){toast('Introduce al menos las ventas de un combustible',false);return;}
+
+    const btn=document.getElementById('cc-guardar');
+    btn.disabled=true;
+    btn.innerHTML='<i class="ti ti-loader" style="font-size:14px"></i> Guardando...';
+
+    const {error}=await sb.from('cierres_caja').insert(data);
+
+    if(error){
+      toast('Error al guardar: '+error.message,false);
+      btn.disabled=false;
+      btn.innerHTML='<i class="ti ti-device-floppy" style="font-size:14px"></i> Guardar cierre del día';
+      return;
+    }
+
+    // Actualizar stock local con existencias finales (para que cisternas lo refleje)
+    Object.keys(FUELS).forEach(k=>{
+      if(vals[k].fin>0&&STOCK[curStation]){
+        STOCK[curStation][k]=vals[k].fin;
+      }
+    });
+
+    toast(cuadreOk?'✓ Cierre guardado — los números cuadran':'✓ Cierre guardado — revisa las diferencias');
+
+    // Limpiar
+    Object.keys(FUELS).forEach(k=>{
+      ['ini','cis','ven','fin'].forEach(t=>{
+        const el=document.getElementById(`cc-${t}-${k}`);
+        if(el) el.value='';
+      });
+    });
+    document.getElementById('cc-obs').value='';
+    document.getElementById('cc-resumen').style.display='none';
+    btn.disabled=false;
+    btn.innerHTML='<i class="ti ti-device-floppy" style="font-size:14px"></i> Guardar cierre del día';
+    await cargarHistorialCierres();
+  });
+}
+
+function updCuadre(){
+  let totalVen=0, totalBen=0, todosCuadran=true, algunoRelleno=false;
+
+  Object.keys(FUELS).forEach(k=>{
+    const fc=FUELS[k];
+    const ini=parseFloat(document.getElementById(`cc-ini-${k}`)?.value)||0;
+    const cis=parseFloat(document.getElementById(`cc-cis-${k}`)?.value)||0;
+    const ven=parseFloat(document.getElementById(`cc-ven-${k}`)?.value)||0;
+    const fin=parseFloat(document.getElementById(`cc-fin-${k}`)?.value)||0;
+    const pvp=parseFloat(document.getElementById(`cc-pvp-${k}`)?.value)||fc.pvp;
+
+    if(ven>0) algunoRelleno=true;
+    totalVen+=ven;
+    const m=cM(pvp,fc.pc);
+    totalBen+=Math.round((m/100)*ven);
+
+    const difEl=document.getElementById(`cc-dif-${k}`);
+    if(difEl){
+      if(ini>0&&ven>0&&fin>0){
+        const calculado=ini+cis-ven;
+        const dif=fin-calculado;
+        const absDif=Math.abs(dif);
+        if(absDif>50) todosCuadran=false;
+        difEl.textContent=(dif>=0?'+':'')+f(Math.round(dif))+' L';
+        difEl.style.color=absDif<=10?'var(--green)':absDif<=50?'var(--amber)':'var(--red)';
+      } else if(ini>0&&ven>0){
+        const calculado=ini+cis-ven;
+        difEl.textContent='→ '+f(Math.round(calculado))+' L';
+        difEl.style.color='var(--blue)';
+        // Auto-fill existencias finales
+        const finEl=document.getElementById(`cc-fin-${k}`);
+        if(finEl&&!finEl.value) finEl.placeholder=f(Math.round(calculado));
+      } else {
+        difEl.textContent='—';
+        difEl.style.color='var(--t3)';
+      }
+    }
+  });
+
+  // Badge cuadre
+  const badge=document.getElementById('cc-cuadre-badge');
+  if(badge){
+    if(!algunoRelleno){
+      badge.textContent='Pendiente';
+      badge.style.background='#F1F5F9';
+      badge.style.color='#64748B';
+    } else if(todosCuadran){
+      badge.textContent='✓ Cuadra';
+      badge.style.background='var(--green-l)';
+      badge.style.color='var(--green)';
+    } else {
+      badge.textContent='⚠ Diferencias';
+      badge.style.background='var(--amber-l)';
+      badge.style.color='var(--amber)';
+    }
+  }
+
+  // Resumen
+  const res=document.getElementById('cc-resumen');
+  if(res&&totalVen>0){
+    const sd2=getSD();const medH=medDia(sd2);
+    const pct=medH>0?Math.round((totalVen-medH)/medH*100):0;
+    res.style.display='block';
+    res.innerHTML=`
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+        <div style="text-align:center"><div style="font-size:10px;color:#166534;margin-bottom:3px">Total ventas hoy</div><div class="mono" style="font-size:20px;font-weight:700;color:var(--green)">${f(totalVen)} L</div><div style="font-size:10px;color:${pct>=0?'var(--green)':'var(--red)'}">${pct>=0?'+':''}${pct}% vs media</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:#166534;margin-bottom:3px">Beneficio estimado</div><div class="mono" style="font-size:20px;font-weight:700;color:var(--green)">${f(totalBen)} €</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:#166534;margin-bottom:3px">Media histórica</div><div class="mono" style="font-size:20px;font-weight:700">${f(medH)} L</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:#166534;margin-bottom:3px">Estado cuadre</div><div style="font-size:16px;font-weight:700;color:${todosCuadran?'var(--green)':'var(--amber)'}">${todosCuadran?'✓ Cuadra':'⚠ Revisar'}</div></div>
+      </div>`;
+  } else if(res) res.style.display='none';
+}
+
+async function cargarHistorialCierres(){
+  const hist=document.getElementById('cc-historial');
+  if(!hist) return;
+
+  const {data,error}=await sb.from('cierres_caja')
+    .select('*')
+    .eq('estacion',curStation)
+    .order('fecha',{ascending:false})
+    .limit(14);
+
+  if(error||!data||data.length===0){
+    hist.innerHTML=`
+    <div class="card-hd"><div><div class="card-title">Historial de cierres</div><div class="card-sub">${curStation}</div></div></div>
+    <div style="text-align:center;padding:30px;color:var(--t3)">
+      <i class="ti ti-clipboard-x" style="font-size:28px;display:block;margin-bottom:8px"></i>
+      Aún no hay cierres registrados para ${curStation}.<br/>Usa el formulario de arriba para añadir el primero.
+    </div>`;
+    return;
+  }
+
+  hist.innerHTML=`
+  <div class="card-hd">
+    <div><div class="card-title">Historial de cierres</div><div class="card-sub">${curStation} · ${data.length} cierres guardados en Supabase</div></div>
+    <button class="btn btn-g btn-sm" onclick="toast('Exportando...')"><i class="ti ti-download" style="font-size:12px"></i> Exportar</button>
+  </div>
+  <div style="overflow-x:auto">
+  <table class="tbl" style="min-width:700px">
+    <thead><tr>
+      <th>Fecha</th>
+      <th style="text-align:right">GoA vendido</th>
+      <th style="text-align:right">G95 vendido</th>
+      <th style="text-align:right">G98 vendido</th>
+      <th style="text-align:right">NEXA vendido</th>
+      <th style="text-align:right">Total ventas</th>
+      <th style="text-align:right">Benef. est.</th>
+      <th style="text-align:center">Cuadre</th>
+      <th>Obs.</th>
+    </tr></thead>
+    <tbody>
+      ${data.map(c=>{
+        const total=(c.goa_litros||0)+(c.g95_litros||0)+(c.g98_litros||0)+(c.nexa_litros||0);
+        const fecha=new Date(c.fecha+'T12:00:00');
+        const diaSemana=DIAS[fecha.getDay()===0?6:fecha.getDay()-1];
+        const medEseDia=medDia(getSD(),diaSemana)||medDia(getSD());
+        const pct=medEseDia>0?Math.round((total-medEseDia)/medEseDia*100):0;
+        const ben=Math.round(
+          (cM(c.goa_pvp||FUELS.GoA.pvp,c.goa_pc||FUELS.GoA.pc)/100)*(c.goa_litros||0)+
+          (cM(c.g95_pvp||FUELS.G95.pvp,c.g95_pc||FUELS.G95.pc)/100)*(c.g95_litros||0)+
+          (cM(c.g98_pvp||FUELS.G98.pvp,c.g98_pc||FUELS.G98.pc)/100)*(c.g98_litros||0)+
+          (cM(c.nexa_pvp||FUELS.NEXA.pvp,c.nexa_pc||FUELS.NEXA.pc)/100)*(c.nexa_litros||0)
+        );
+        // Detectar si hay columnas de existencias
+        const tieneExist=c.goa_ini!=null||c.goa_fin!=null;
+        const cuadre=tieneExist?'✓':'—';
+        return`<tr>
+          <td><div style="font-weight:500">${fecha.toLocaleDateString('es-ES',{day:'numeric',month:'short'})}</div><div style="font-size:10px;color:var(--t3)">${diaSemana}</div></td>
+          <td class="mono" style="text-align:right">${f(c.goa_litros||0)}</td>
+          <td class="mono" style="text-align:right">${f(c.g95_litros||0)}</td>
+          <td class="mono" style="text-align:right">${f(c.g98_litros||0)}</td>
+          <td class="mono" style="text-align:right">${f(c.nexa_litros||0)}</td>
+          <td class="mono" style="text-align:right;font-weight:600">${f(total)} L<div style="font-size:10px;color:${pct>=0?'var(--green)':'var(--red)'};font-weight:400">${pct>=0?'+':''}${pct}%</div></td>
+          <td class="mono" style="text-align:right;color:var(--green);font-weight:500">${f(ben)} €</td>
+          <td style="text-align:center"><span class="pill ${tieneExist?'pg':'pgy'}">${cuadre}</span></td>
+          <td style="font-size:11px;color:var(--t2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.observaciones||'—'}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>
+  </div>`;
+}
+
+
+// ── PRECIOS DEL DÍA ──────────────────────────────────────────────────────────
+const GRUPO_A = ['Europolis','Las Matas','El Escorial (M.D.+M.I.)','Saltos del Sil','Monte del Pilar'];
+const GRUPO_B = ['Valdemoro','Valdefuentes'];
+
+async function renderPrecios(){
+  const content=document.getElementById('content');
+  const hoy=new Date().toISOString().split('T')[0];
+  const hoyLabel=new Date().toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
+
+  // Cargar precios de hoy si ya existen
+  let preciosHoy=null;
+  if(currentUser?.id!=='demo'){
+    const {data}=await sb.from('precios_diarios')
+      .select('*').eq('fecha',hoy).single();
+    if(data) preciosHoy=data;
+  }
+
+  // Cargar historial últimos 7 días
+  let historial=[];
+  if(currentUser?.id!=='demo'){
+    const {data}=await sb.from('precios_diarios')
+      .select('*').order('fecha',{ascending:false}).limit(7);
+    if(data) historial=data;
+  }
+
+  const p=preciosHoy||{};
+
+  content.innerHTML=`
+  <!-- BANNER si ya hay precios hoy -->
+  ${preciosHoy?`<div style="background:var(--green-l);border:1px solid #BBF7D0;border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:8px;font-size:12px;color:#166534">
+    <i class="ti ti-check" style="font-size:16px"></i>
+    <strong>Precios del día ya guardados</strong> — puedes modificarlos si han cambiado
+  </div>`:''}
+
+  <div class="card" style="margin-bottom:14px;border:1px solid var(--blue-m);background:#FAFCFF">
+    <div class="card-hd">
+      <div><div class="card-title" style="color:var(--blue)"><i class="ti ti-tag" style="font-size:13px;margin-right:5px"></i>Precios del día — ${hoyLabel}</div>
+      <div class="card-sub">Introduce los precios de hoy y la app calcula los márgenes automáticamente</div></div>
+      <input type="date" id="precio-fecha" class="f-input" style="width:160px" value="${hoy}"/>
+    </div>
+
+    <!-- PRECIO DE COMPRA REPSOL -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        <i class="ti ti-building-store" style="color:var(--blue);font-size:14px"></i> Precio de compra Repsol — igual para todas las estaciones
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+        ${Object.entries(FUELS).map(([k,fc])=>`
+        <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            <span style="width:10px;height:10px;border-radius:50%;background:${fc.c};display:inline-block"></span>
+            <span style="font-size:11px;font-weight:600;color:${fc.c}">${fc.l}</span>
+          </div>
+          <label class="f-label">P. compra (€/L)</label>
+          <input id="pc-${k}" class="f-input mono" type="number" step="0.0001" value="${p[k.toLowerCase()+'_pc']||fc.pc}" oninput="updPrecios()"/>
+          <div id="pvs-${k}" style="font-size:10px;color:var(--t3);margin-top:4px">PVP s/IVA: <span class="mono">${f4(fc.pvp/1.10)} €</span></div>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- PVP GRUPO A -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+        <i class="ti ti-map-pin" style="color:var(--green);font-size:14px"></i> PVP Grupo A
+      </div>
+      <div style="font-size:10px;color:var(--t3);margin-bottom:10px">${GRUPO_A.join(' · ')}</div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+        ${Object.entries(FUELS).map(([k,fc])=>`
+        <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            <span style="width:10px;height:10px;border-radius:50%;background:${fc.c};display:inline-block"></span>
+            <span style="font-size:11px;font-weight:600;color:${fc.c}">${fc.l}</span>
+          </div>
+          <label class="f-label">PVP con IVA (€/L)</label>
+          <input id="pvpa-${k}" class="f-input mono" type="number" step="0.001" value="${p[k.toLowerCase()+'_pvp_a']||fc.pvp}" oninput="updPrecios()"/>
+          <div id="mga-${k}" style="font-size:11px;font-weight:600;margin-top:6px"></div>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- PVP GRUPO B -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+        <i class="ti ti-map-pin" style="color:var(--amber);font-size:14px"></i> PVP Grupo B
+      </div>
+      <div style="font-size:10px;color:var(--t3);margin-bottom:10px">${GRUPO_B.join(' · ')}</div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+        ${Object.entries(FUELS).map(([k,fc])=>`
+        <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:12px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            <span style="width:10px;height:10px;border-radius:50%;background:${fc.c};display:inline-block"></span>
+            <span style="font-size:11px;font-weight:600;color:${fc.c}">${fc.l}</span>
+          </div>
+          <label class="f-label">PVP con IVA (€/L)</label>
+          <input id="pvpb-${k}" class="f-input mono" type="number" step="0.001" value="${p[k.toLowerCase()+'_pvp_b']||fc.pvp}" oninput="updPrecios()"/>
+          <div id="mgb-${k}" style="font-size:11px;font-weight:600;margin-top:6px"></div>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- RESUMEN MÁRGENES -->
+    <div id="precio-resumen" style="background:#F8FAFC;border-radius:8px;padding:14px;margin-bottom:16px"></div>
+
+    <button class="btn btn-p" style="width:100%;height:42px;font-size:13px" id="btn-guardar-precio">
+      <i class="ti ti-device-floppy" style="font-size:14px"></i> Guardar precios del día
+    </button>
+  </div>
+
+  <!-- HISTORIAL -->
+  <div class="card">
+    <div class="card-hd"><div><div class="card-title">Historial de precios</div><div class="card-sub">Últimos 7 días guardados en Supabase</div></div></div>
+    ${historial.length>0?`
+    <table class="tbl">
+      <thead><tr><th>Fecha</th><th>GoA P.compra</th><th>G95 P.compra</th><th>G98 P.compra</th><th>NEXA P.compra</th><th>Margen GoA (A)</th><th>Margen GoA (B)</th></tr></thead>
+      <tbody>${historial.map(h=>{
+        const fecha=new Date(h.fecha+'T12:00:00');
+        const mGoAa=cM(h.goa_pvp_a||0,h.goa_pc||0);
+        const mGoAb=cM(h.goa_pvp_b||0,h.goa_pc||0);
+        return`<tr>
+          <td style="font-weight:500">${fecha.toLocaleDateString('es-ES',{day:'numeric',month:'short'})}</td>
+          <td class="mono">${(h.goa_pc||0).toFixed(4)} €</td>
+          <td class="mono">${(h.g95_pc||0).toFixed(4)} €</td>
+          <td class="mono">${(h.g98_pc||0).toFixed(4)} €</td>
+          <td class="mono">${(h.nexa_pc||0).toFixed(4)} €</td>
+          <td><span class="mono" style="font-weight:600;color:${mc(mGoAa)}">${f2(mGoAa)} cts</span></td>
+          <td><span class="mono" style="font-weight:600;color:${mc(mGoAb)}">${f2(mGoAb)} cts</span></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`:`
+    <div style="text-align:center;padding:30px;color:var(--t3)">
+      <i class="ti ti-tag" style="font-size:28px;display:block;margin-bottom:8px"></i>
+      Aún no hay precios guardados. Introduce los precios de hoy arriba.
+    </div>`}
+  </div>`;
+
+  // Calcular márgenes iniciales
+  updPrecios();
+
+  // Guardar
+  document.getElementById('btn-guardar-precio')?.addEventListener('click', async()=>{
+    const fecha=document.getElementById('precio-fecha')?.value||hoy;
+    const btn=document.getElementById('btn-guardar-precio');
+    btn.disabled=true;
+    btn.innerHTML='<i class="ti ti-loader" style="font-size:14px"></i> Guardando...';
+
+    const data={
+      fecha,
+      usuario_id: currentUser?.id==='demo'?null:currentUser?.id,
+      goa_pc:  parseFloat(document.getElementById('pc-GoA')?.value)||0,
+      g95_pc:  parseFloat(document.getElementById('pc-G95')?.value)||0,
+      g98_pc:  parseFloat(document.getElementById('pc-G98')?.value)||0,
+      nexa_pc: parseFloat(document.getElementById('pc-NEXA')?.value)||0,
+      goa_pvp_a:  parseFloat(document.getElementById('pvpa-GoA')?.value)||0,
+      g95_pvp_a:  parseFloat(document.getElementById('pvpa-G95')?.value)||0,
+      g98_pvp_a:  parseFloat(document.getElementById('pvpa-G98')?.value)||0,
+      nexa_pvp_a: parseFloat(document.getElementById('pvpa-NEXA')?.value)||0,
+      goa_pvp_b:  parseFloat(document.getElementById('pvpb-GoA')?.value)||0,
+      g95_pvp_b:  parseFloat(document.getElementById('pvpb-G95')?.value)||0,
+      g98_pvp_b:  parseFloat(document.getElementById('pvpb-G98')?.value)||0,
+      nexa_pvp_b: parseFloat(document.getElementById('pvpb-NEXA')?.value)||0,
+    };
+
+    // Actualizar FUELS con los precios nuevos para que el resto de la app los use
+    Object.keys(FUELS).forEach(k=>{
+      FUELS[k].pc=data[k.toLowerCase()+'_pc']||FUELS[k].pc;
+      // Usar PVP del grupo de la estación seleccionada
+      const esMiGrupoA=GRUPO_A.includes(curStation);
+      FUELS[k].pvp=data[k.toLowerCase()+'_pvp_'+(esMiGrupoA?'a':'b')]||FUELS[k].pvp;
+    });
+
+    // Upsert — actualizar si ya existe para esa fecha
+    const {error}=await sb.from('precios_diarios').upsert(data,{onConflict:'fecha'});
+
+    if(error){
+      toast('Error al guardar: '+error.message, false);
+    } else {
+      toast('✓ Precios guardados correctamente');
+    }
+
+    btn.disabled=false;
+    btn.innerHTML='<i class="ti ti-device-floppy" style="font-size:14px"></i> Guardar precios del día';
+    await renderPrecios();
+  });
+}
+
+function updPrecios(){
+  // Actualizar márgenes en tiempo real para cada combustible y grupo
+  Object.keys(FUELS).forEach(k=>{
+    const pc=parseFloat(document.getElementById(`pc-${k}`)?.value)||0;
+    const pvpA=parseFloat(document.getElementById(`pvpa-${k}`)?.value)||0;
+    const pvpB=parseFloat(document.getElementById(`pvpb-${k}`)?.value)||0;
+
+    // PVP sin IVA
+    const pvsEl=document.getElementById(`pvs-${k}`);
+    if(pvsEl&&pc>0) pvsEl.innerHTML=`PVP s/IVA compra: <span class="mono">${f4(pc)} €</span>`;
+
+    // Margen Grupo A
+    const mgaEl=document.getElementById(`mga-${k}`);
+    if(mgaEl&&pvpA>0&&pc>0){
+      const m=cM(pvpA,pc);
+      mgaEl.innerHTML=`Margen: <span style="color:${mc(m)};font-size:13px">${f2(m)} cts</span> <span class="pill ${ml(m)[1]}" style="font-size:9px">${ml(m)[0]}</span>`;
+    }
+
+    // Margen Grupo B
+    const mgbEl=document.getElementById(`mgb-${k}`);
+    if(mgbEl&&pvpB>0&&pc>0){
+      const m=cM(pvpB,pc);
+      mgbEl.innerHTML=`Margen: <span style="color:${mc(m)};font-size:13px">${f2(m)} cts</span> <span class="pill ${ml(m)[1]}" style="font-size:9px">${ml(m)[0]}</span>`;
+    }
+  });
+
+  // Resumen general
+  const res=document.getElementById('precio-resumen');
+  if(!res) return;
+  const filas=Object.entries(FUELS).map(([k,fc])=>{
+    const pc=parseFloat(document.getElementById(`pc-${k}`)?.value)||0;
+    const pvpA=parseFloat(document.getElementById(`pvpa-${k}`)?.value)||0;
+    const pvpB=parseFloat(document.getElementById(`pvpb-${k}`)?.value)||0;
+    if(!pc||!pvpA) return '';
+    const mA=cM(pvpA,pc); const mB=cM(pvpB,pc);
+    return`<tr style="border-top:1px solid #F1F5F9">
+      <td style="padding:7px 0;font-size:11px;font-weight:600;color:${fc.c};display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:${fc.c};display:inline-block"></span>${fc.l}</td>
+      <td style="padding:7px 10px;font-family:monospace;font-size:11px">${f4(pc)} €</td>
+      <td style="padding:7px 10px"><span style="font-family:monospace;font-weight:700;font-size:13px;color:${mc(mA)}">${f2(mA)} cts</span></td>
+      <td style="padding:7px 10px"><span style="font-family:monospace;font-weight:700;font-size:13px;color:${mc(mB)}">${f2(mB)} cts</span></td>
+    </tr>`;
+  }).join('');
+
+  if(filas){
+    res.innerHTML=`
+    <div style="font-size:11px;font-weight:600;color:var(--t2);margin-bottom:8px">Resumen de márgenes del día</div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="text-align:left;font-size:10px;color:var(--t3);font-weight:500;padding-bottom:6px">Combustible</th>
+        <th style="text-align:left;font-size:10px;color:var(--t3);font-weight:500;padding:0 10px 6px">P.compra</th>
+        <th style="text-align:left;font-size:10px;color:var(--t3);font-weight:500;padding:0 10px 6px">Margen Grupo A</th>
+        <th style="text-align:left;font-size:10px;color:var(--t3);font-weight:500;padding:0 10px 6px">Margen Grupo B</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table>`;
+  }
+}
+
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+async function init(){
+  try{
+    const {data:{session}}=await sb.auth.getSession();
+    if(session){
+      currentUser=session.user;
+      await loadProfile();
+      enterApp();
+    } else {
+      document.getElementById('auth').style.display='flex';
+    }
+  }catch(e){
+    document.getElementById('auth').style.display='flex';
+  }
+  document.getElementById('loading').style.display='none';
+
+  sb.auth.onAuthStateChange((event,session)=>{
+    if(event==='SIGNED_OUT'){
+      document.getElementById('app').style.display='none';
+      document.getElementById('auth').style.display='flex';
+    }
+  });
+
+  document.getElementById('in-pass')?.addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+  document.getElementById('reg-pass')?.addEventListener('keydown',e=>{if(e.key==='Enter')doRegister();});
+}
+
+init();
+</script>
+</body>
+</html>
