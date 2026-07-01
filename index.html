@@ -271,7 +271,7 @@ const f3 =n=>parseFloat(n).toFixed(3);
 const f4 =n=>parseFloat(n).toFixed(4);
 const mc =m=>m>=5.5?'#16A34A':m>=3?'#D97706':'#DC2626';
 const ml =m=>m>=5.5?['Óptimo','pg']:m>=3?['Aceptable','pa']:['Crítico','pr'];
-const cM =(p,c)=>(p/1.10-c)*100;
+const cM =(p,c)=>(p/1.21-c)*100;
 const todayDia=()=>['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][new Date().getDay()];
 const getSD=()=>RD[curStation]||null;
 const yd =sd=>sd?sd.yd:0;
@@ -571,7 +571,7 @@ function renderFuelContent(){
       <thead><tr><th>Fecha</th><th>PVP</th><th>P.compra</th><th>PVP s/IVA</th><th>Margen</th><th>Litros ref.</th><th>Beneficio</th><th>Estado</th></tr></thead>
       <tbody>${[[fc.pvp-.01,fc.pc+.004,Math.round(litD*.95)],[fc.pvp-.01,fc.pc,Math.round(litD*.78)],[fc.pvp,fc.pc,Math.round(litD*1.05)],[fc.pvp,fc.pc+.003,Math.round(litD*1.02)],[fc.pvp+.01,fc.pc+.003,Math.round(litD*.75)],[fc.pvp+.01,fc.pc-.002,Math.round(litD*1.27)],[fc.pvp,fc.pc-.002,Math.round(litD*1.11)]].map(([p,c,l],i)=>{
         const mg=cM(p,c);const[lt,lc]=ml(mg);
-        return`<tr><td style="font-weight:500">${['17 jun','18 jun','19 jun','20 jun','21 jun','22 jun','23 jun'][i]}</td><td class="mono">${f3(p)}</td><td class="mono">${f3(c)}</td><td class="mono">${(p/1.10).toFixed(3)}</td><td><span class="mono" style="font-weight:600;color:${mc(mg)}">${f2(mg)} cts</span></td><td class="mono">${f(l)}</td><td class="mono" style="font-weight:500">${f(Math.round((mg/100)*l))} €</td><td><span class="pill ${lc}">${lt}</span></td></tr>`;
+        return`<tr><td style="font-weight:500">${['17 jun','18 jun','19 jun','20 jun','21 jun','22 jun','23 jun'][i]}</td><td class="mono">${f3(p)}</td><td class="mono">${f3(c)}</td><td class="mono">${(p/1.21).toFixed(3)}</td><td><span class="mono" style="font-weight:600;color:${mc(mg)}">${f2(mg)} cts</span></td><td class="mono">${f(l)}</td><td class="mono" style="font-weight:500">${f(Math.round((mg/100)*l))} €</td><td><span class="pill ${lc}">${lt}</span></td></tr>`;
       }).join('')}</tbody>
     </table>
   </div>`;
@@ -581,7 +581,7 @@ function renderFuelContent(){
     FUELS[curFuel].pvp=p;FUELS[curFuel].pc=c;
     const m=cM(p,c);
     const r=document.getElementById('f-result');const lvl=document.getElementById('f-lvl');const bar=document.getElementById('f-bar');
-    if(r)r.innerHTML=`<div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">PVP sin IVA</div><div class="mono" style="font-size:17px;font-weight:600">${f4(p/1.10)} €</div></div><div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Margen/litro</div><div class="mono" style="font-size:26px;font-weight:700;color:${mc(m)}">${f2(m)} cts</div></div><div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Benef. est. hoy</div><div class="mono" style="font-size:17px;font-weight:600;color:var(--green)">${f(Math.round((m/100)*litD))} €</div></div><div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Benef. est. mes</div><div class="mono" style="font-size:17px;font-weight:600;color:var(--green)">${f(Math.round((m/100)*litD*30))} €</div></div>`;
+    if(r)r.innerHTML=`<div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">PVP sin IVA</div><div class="mono" style="font-size:17px;font-weight:600">${f4(p/1.21)} €</div></div><div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Margen/litro</div><div class="mono" style="font-size:26px;font-weight:700;color:${mc(m)}">${f2(m)} cts</div></div><div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Benef. est. hoy</div><div class="mono" style="font-size:17px;font-weight:600;color:var(--green)">${f(Math.round((m/100)*litD))} €</div></div><div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">Benef. est. mes</div><div class="mono" style="font-size:17px;font-weight:600;color:var(--green)">${f(Math.round((m/100)*litD*30))} €</div></div>`;
     if(lvl){lvl.textContent=f2(m)+' cts/L';lvl.style.color=mc(m);}
     if(bar){bar.style.width=Math.min(100,(m/8)*100)+'%';bar.style.background=mc(m);}
   };
@@ -1750,6 +1750,12 @@ async function renderPrecios(){
   </div>`;
 
   updMargenes();
+  // Sección simulador
+  const simSection=document.createElement('div');
+  simSection.id='simulador-section';
+  document.getElementById('content').appendChild(simSection);
+  renderSimulador();
+
   setupPreciosEvents();
 }
 
@@ -1927,6 +1933,149 @@ function mostrarStatus(msg, color){
   el.style.border=`1px solid ${color==='green'?'#BBF7D0':color==='amber'?'#FCD34D':'#FECACA'}`;
 }
 
+
+
+// ── SIMULADOR DE MÁRGENES ────────────────────────────────────────────────────
+function renderSimulador(){
+  const el=document.getElementById('simulador-section');
+  if(!el) return;
+  el.innerHTML=`
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-hd">
+      <div><div class="card-title"><i class="ti ti-calculator" style="font-size:13px;margin-right:5px;color:var(--blue)"></i>Simulador de precios</div>
+      <div class="card-sub">Fuerza un margen objetivo y calcula el PVP necesario, o viceversa</div></div>
+    </div>
+
+    <!-- Dos calculadoras -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+      <!-- CALC A: Margen → PVP -->
+      <div style="background:#F8FAFC;border-radius:8px;padding:14px;border:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">
+          <i class="ti ti-target" style="font-size:13px;margin-right:4px"></i>Margen objetivo → PVP necesario
+        </div>
+        <div class="f-row" style="margin-bottom:10px">
+          <div class="f-group" style="margin-bottom:0">
+            <label class="f-label">Combustible</label>
+            <select id="sim-fuel-a" class="f-input" style="cursor:pointer" onchange="calcSimA()">
+              ${Object.entries(FUELS).map(([k,fc])=>`<option value="${k}">${fc.l}</option>`).join('')}
+            </select>
+          </div>
+          <div class="f-group" style="margin-bottom:0">
+            <label class="f-label">Margen objetivo (cts)</label>
+            <input id="sim-margen-a" class="f-input mono" type="number" step="0.1" placeholder="19.00" oninput="calcSimA()"/>
+          </div>
+        </div>
+        <div class="f-group">
+          <label class="f-label">Precio de compra Repsol (€/L)</label>
+          <input id="sim-pc-a" class="f-input mono" type="number" step="0.0001" placeholder="${FUELS.GoA.pc.toFixed(4)}" value="${FUELS.GoA.pc.toFixed(4)}" oninput="calcSimA()"/>
+        </div>
+        <div id="sim-res-a" style="background:#fff;border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center;min-height:60px;display:flex;align-items:center;justify-content:center">
+          <span style="font-size:12px;color:var(--t3)">Introduce un margen objetivo</span>
+        </div>
+      </div>
+
+      <!-- CALC B: PVP → Margen -->
+      <div style="background:#F8FAFC;border-radius:8px;padding:14px;border:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:600;color:var(--green);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">
+          <i class="ti ti-tag" style="font-size:13px;margin-right:4px"></i>PVP conocido → Margen resultante
+        </div>
+        <div class="f-row" style="margin-bottom:10px">
+          <div class="f-group" style="margin-bottom:0">
+            <label class="f-label">Combustible</label>
+            <select id="sim-fuel-b" class="f-input" style="cursor:pointer" onchange="calcSimB()">
+              ${Object.entries(FUELS).map(([k,fc])=>`<option value="${k}">${fc.l}</option>`).join('')}
+            </select>
+          </div>
+          <div class="f-group" style="margin-bottom:0">
+            <label class="f-label">PVP con IVA (€/L)</label>
+            <input id="sim-pvp-b" class="f-input mono" type="number" step="0.001" placeholder="1.589" oninput="calcSimB()"/>
+          </div>
+        </div>
+        <div class="f-group">
+          <label class="f-label">Precio de compra Repsol (€/L)</label>
+          <input id="sim-pc-b" class="f-input mono" type="number" step="0.0001" placeholder="${FUELS.GoA.pc.toFixed(4)}" value="${FUELS.GoA.pc.toFixed(4)}" oninput="calcSimB()"/>
+        </div>
+        <div id="sim-res-b" style="background:#fff;border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center;min-height:60px;display:flex;align-items:center;justify-content:center">
+          <span style="font-size:12px;color:var(--t3)">Introduce un PVP</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  // Auto-rellenar precio de compra desde los campos de precios del día si están rellenos
+  updSimPc();
+}
+
+function updSimPc(){
+  // Si ya hay precios de compra introducidos en la pantalla, los usa como default
+  ['a','b'].forEach(sim=>{
+    const fuelSel=document.getElementById(`sim-fuel-${sim}`)?.value||'GoA';
+    const pcEl=document.getElementById(`sim-pc-${sim}`);
+    if(!pcEl) return;
+    const pcInput=document.getElementById(`pc-${fuelSel}`);
+    if(pcInput?.value) pcEl.value=parseFloat(pcInput.value).toFixed(4);
+  });
+}
+
+function calcSimA(){
+  const fuel=document.getElementById('sim-fuel-a')?.value||'GoA';
+  const margenObj=parseFloat(document.getElementById('sim-margen-a')?.value)||0;
+  const pc=parseFloat(document.getElementById('sim-pc-a')?.value)||FUELS[fuel].pc;
+
+  // Actualizar PC si cambia combustible
+  const pcInput=document.getElementById(`pc-${fuel}`);
+  const simPcEl=document.getElementById('sim-pc-a');
+  if(pcInput?.value&&simPcEl&&!simPcEl._edited) simPcEl.value=parseFloat(pcInput.value).toFixed(4);
+
+  const el=document.getElementById('sim-res-a');
+  if(!margenObj||!pc){
+    el.innerHTML='<span style="font-size:12px;color:var(--t3)">Introduce un margen objetivo</span>';
+    return;
+  }
+
+  // PVP = (margen/100 + pc) * 1.21
+  const pvp=(margenObj/100+pc)*1.21;
+  const fc=FUELS[fuel];
+
+  el.innerHTML=`
+    <div style="width:100%">
+      <div style="font-size:11px;color:var(--t3);margin-bottom:4px">Para un margen de <strong>${margenObj} cts</strong> en ${fc.l}</div>
+      <div style="font-size:28px;font-weight:700;color:var(--blue);font-family:monospace;margin-bottom:6px">${pvp.toFixed(3)} €/L</div>
+      <div style="font-size:11px;color:var(--t3)">PVP sin IVA: <span class="mono">${(pvp/1.21).toFixed(4)} €</span></div>
+    </div>`;
+}
+
+function calcSimB(){
+  const fuel=document.getElementById('sim-fuel-b')?.value||'GoA';
+  const pvp=parseFloat(document.getElementById('sim-pvp-b')?.value)||0;
+  const pc=parseFloat(document.getElementById('sim-pc-b')?.value)||FUELS[fuel].pc;
+
+  const pcInput=document.getElementById(`pc-${fuel}`);
+  const simPcEl=document.getElementById('sim-pc-b');
+  if(pcInput?.value&&simPcEl&&!simPcEl._edited) simPcEl.value=parseFloat(pcInput.value).toFixed(4);
+
+  const el=document.getElementById('sim-res-b');
+  if(!pvp||!pc){
+    el.innerHTML='<span style="font-size:12px;color:var(--t3)">Introduce un PVP</span>';
+    return;
+  }
+
+  const m=(pvp/1.21-pc)*100;
+  const fc=FUELS[fuel];
+  const color=m>=5.5?'var(--green)':m>=3?'var(--amber)':'var(--red)';
+  const estado=m>=5.5?'Óptimo':m>=3?'Aceptable':'Crítico';
+
+  el.innerHTML=`
+    <div style="width:100%">
+      <div style="font-size:11px;color:var(--t3);margin-bottom:4px">Margen con PVP <strong>${pvp.toFixed(3)} €</strong> en ${fc.l}</div>
+      <div style="font-size:28px;font-weight:700;color:${color};font-family:monospace;margin-bottom:6px">${m.toFixed(2)} cts/L</div>
+      <div style="display:flex;justify-content:center;gap:10px;font-size:11px">
+        <span style="color:var(--t3)">PVP s/IVA: <span class="mono">${(pvp/1.21).toFixed(4)} €</span></span>
+        <span class="pill ${m>=5.5?'pg':m>=3?'pa':'pr'}">${estado}</span>
+      </div>
+    </div>`;
+}
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init(){
